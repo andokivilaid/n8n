@@ -278,6 +278,16 @@ export class License implements LicenseProvider {
 	}
 
 	isLicensed(feature: BooleanLicenseFeature) {
+		if (this.globalConfig.license.unlockEnterprise) {
+			// These flags are restrictions / UX banners when present — leave off.
+			if (
+				feature === LICENSE_FEATURES.API_DISABLED ||
+				feature === LICENSE_FEATURES.SHOW_NON_PROD_BANNER
+			) {
+				return false;
+			}
+			return true;
+		}
 		return this.manager?.hasFeatureEnabled(feature) ?? false;
 	}
 
@@ -409,6 +419,18 @@ export class License implements LicenseProvider {
 	}
 
 	getValue<T extends keyof FeatureReturnType>(feature: T): FeatureReturnType[T] {
+		if (this.globalConfig.license.unlockEnterprise) {
+			if (feature === 'planName') {
+				return 'Enterprise' as FeatureReturnType[T];
+			}
+			// Numeric quotas: -1 means unlimited everywhere in LicenseState helpers.
+			if (typeof feature === 'string' && feature.startsWith('quota:')) {
+				return UNLIMITED_LICENSE_QUOTA as FeatureReturnType[T];
+			}
+			if (typeof feature === 'string' && feature.startsWith('feat:')) {
+				return this.isLicensed(feature as BooleanLicenseFeature) as FeatureReturnType[T];
+			}
+		}
 		return this.manager?.getFeatureValue(feature) as FeatureReturnType[T];
 	}
 

@@ -25,4 +25,12 @@ export class LicenseConfig {
 	/** Ephemeral license certificate. See: https://github.com/n8n-io/license-management?tab=readme-ov-file#concept-ephemeral-entitlements */
 	@Env('N8N_LICENSE_CERT')
 	cert: string = '';
+
+	/**
+	 * Personal-fork escape hatch: treat all enterprise features as licensed and
+	 * quotas as unlimited. Does not enable `feat:apiDisabled` (that flag turns
+	 * the Public API off) or `feat:showNonProdBanner`.
+	 */
+	@Env('N8N_LICENSE_UNLOCK_ENTERPRISE')
+	unlockEnterprise: boolean = false;
 }
