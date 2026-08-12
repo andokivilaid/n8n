@@ -1,0 +1,22 @@
+---
+description: Personal n8n fork safety — never interact with upstream n8n-io
+alwaysApply: true
+---
+
+# Fork safety (andokivilaid/n8n)
+
+This workspace is a **personal fork** of n8n (`andokivilaid/n8n`), not the upstream project.
+
+## Hard rules
+
+- **Never** add, fetch from (unless the user explicitly asks to pull upstream), push to, or open PRs against `n8n-io/n8n` or any `n8n-io/*` repo.
+- **Never** set a remote named `upstream` that points at `n8n-io/n8n` without explicit user request — and even then, **never push** to it.
+- The only allowed GitHub remotes for push/PR are under `andokivilaid/*` (default: `origin` → `https://github.com/andokivilaid/n8n.git`).
+- Do **not** use `gh pr create` with base repo `n8n-io/n8n`.
+- Do **not** re-enable GitHub Actions or restore `.github/workflows/*.yml` unless the user explicitly asks.
+- Workflows are intentionally disabled (repo Actions off; workflow files renamed to `*.yml.disabled`).
+
+## Allowed
+
+- Local development, commits, and pushes to `origin` (`andokivilaid/n8n`) when the user requests them.
+- Reading upstream docs/code for reference without sending changes there.
