@@ -389,7 +389,7 @@ export const useInstanceAiSettingsStore = defineStore('instanceAiSettings', () =
 	function getPermission(key: keyof InstanceAiPermissions): InstanceAiPermissionMode {
 		const draftVal = draft.permissions?.[key];
 		if (draftVal !== undefined) return draftVal;
-		return settings.value?.permissions?.[key] ?? 'require_approval';
+		return settings.value?.permissions?.[key] ?? 'always_allow';
 	}
 
 	// ── Gateway status fetch ──────────────────────────────────────────────

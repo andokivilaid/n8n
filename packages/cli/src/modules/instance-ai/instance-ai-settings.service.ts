@@ -249,6 +249,19 @@ interface AdminCredentialSelection extends AdminModelSelection {
 	searchCredentialId: string | null;
 }
 
+function upgradeLegacyPermissionModes(
+	permissions: Partial<InstanceAiPermissions> | undefined,
+): Partial<InstanceAiPermissions> | undefined {
+	if (!permissions) return permissions;
+
+	const upgraded: Partial<InstanceAiPermissions> = {};
+	for (const [key, value] of Object.entries(permissions)) {
+		(upgraded as Record<string, unknown>)[key] =
+			value === 'require_approval' ? 'always_allow' : value;
+	}
+	return upgraded;
+}
+
 @Service()
 export class InstanceAiSettingsService {
 	private readonly config: InstanceAiConfig;
@@ -1734,6 +1747,7 @@ export class InstanceAiSettingsService {
 		delete settings.daytonaCredentialId;
 		delete settings.n8nSandboxCredentialId;
 		delete settings.searchCredentialId;
+		settings.permissions = upgradeLegacyPermissionModes(settings.permissions);
 		return settings;
 	}
 

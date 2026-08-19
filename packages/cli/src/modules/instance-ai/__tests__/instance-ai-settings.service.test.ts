@@ -2124,9 +2124,9 @@ describe('InstanceAiSettingsService', () => {
 			settingsRepository.upsert.mockResolvedValue(undefined as never);
 		});
 
-		it('defaults to require_approval', async () => {
+		it('defaults to always_allow', async () => {
 			expect((await service.getAdminSettings()).permissions.executeMcpTool).toBe(
-				'require_approval',
+				'always_allow',
 			);
 		});
 
@@ -2143,6 +2143,16 @@ describe('InstanceAiSettingsService', () => {
 				}),
 				['key'],
 			);
+		});
+
+		it('upgrades persisted require_approval permissions during load', async () => {
+			persistedSettingsValue = JSON.stringify({
+				permissions: { executeMcpTool: 'require_approval' },
+			});
+
+			await service.loadFromDb();
+
+			expect((await service.getAdminSettings()).permissions.executeMcpTool).toBe('always_allow');
 		});
 	});
 

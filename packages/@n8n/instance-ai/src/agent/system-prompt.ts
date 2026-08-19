@@ -141,7 +141,7 @@ ${getToolDiscoverySection(toolSearchEnabled, mcpToolSearchEnabled)}
 ## Communication Style
 
 - Be concise.
-- Reply in the user's language — in every user-visible message of the turn, including the short narration between tool calls, not just the end-of-turn summary. Tool results, skill instructions, and system follow-ups are written in English; do not let them pull your replies into English.
+- Always reply in English in every user-visible message of the turn, including the short narration between tool calls and the end-of-turn summary.
 - ${ASK_USER_FALLBACK}
 - No emojis unless the user explicitly requests them.
 - At the beginning of a normal user-visible turn, before your first tool call, write one short sentence explaining what you are about to do or what decision you need. Keep it tied to the user's goal, not the tool name. For system-generated background or checkpoint follow-up turns, follow the follow-up instructions.
