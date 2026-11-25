@@ -3,6 +3,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { McpError, ErrorCode, CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { proxyFetch } from '@n8n/ai-utilities';
 import { Container } from '@n8n/di';
+import { createResultOk } from '@n8n/utils/result';
 import { StructuredToolkit } from 'n8n-core';
 import {
 	type IExecuteFunctions,
@@ -11,6 +12,7 @@ import {
 	type ILoadOptionsFunctions,
 	type INode,
 	type ISupplyDataFunctions,
+	type NodeEgressFilter,
 	jsonParse,
 } from 'n8n-workflow';
 import type { MockedFunction } from 'vitest';
@@ -33,6 +35,18 @@ vi.mock('@n8n/ai-utilities', async () => {
 
 const mockedProxyFetch = proxyFetch as MockedFunction<typeof proxyFetch>;
 
+const createTestEgressFilter = (): NodeEgressFilter => ({
+	validateUrl: vi.fn().mockResolvedValue(createResultOk(undefined)),
+	validateConnectionHost: vi.fn().mockReturnValue(createResultOk(undefined)),
+	createSecureLookup: vi.fn().mockReturnValue(vi.fn()),
+	validateRedirectSync: vi.fn(),
+});
+
+const egressHelpers = <T extends { helpers: unknown }>(): Partial<T> =>
+	({
+		helpers: { getSecureEgressFilter: vi.fn(() => createTestEgressFilter()) },
+	}) as Partial<T>;
+
 describe('McpClientTool', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
@@ -54,6 +68,7 @@ describe('McpClientTool', () => {
 
 			const result = await getTools.call(
 				mock<ILoadOptionsFunctions>({
+					...egressHelpers<ILoadOptionsFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1 })),
 					getNodeParameter: vi.fn((key: string) => {
 						const parameters: Record<string, unknown> = {
@@ -78,6 +93,7 @@ describe('McpClientTool', () => {
 			vi.spyOn(Client.prototype, 'connect').mockRejectedValue(new Error('Fail!'));
 			const node = mock<INode>({ typeVersion: 1 });
 			const mockLoadOptionsFunctions = mock<ILoadOptionsFunctions>({
+				...egressHelpers<ILoadOptionsFunctions>(),
 				getNode: vi.fn(() => node),
 				getNodeParameter: vi.fn((key: string) => {
 					const parameters: Record<string, unknown> = {
@@ -111,6 +127,7 @@ describe('McpClientTool', () => {
 
 			await getTools.call(
 				mock<ILoadOptionsFunctions>({
+					...egressHelpers<ILoadOptionsFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1 })),
 					getNodeParameter: vi.fn((key: string) => {
 						const parameters: Record<string, unknown> = {
@@ -148,6 +165,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 					logger: { debug: vi.fn(), error: vi.fn() },
 					addInputData: vi.fn(() => ({ index: 0 })),
@@ -190,6 +208,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() =>
 						mock<INode>({
 							typeVersion: 1,
@@ -237,6 +256,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() =>
 						mock<INode>({
 							typeVersion: 1,
@@ -281,6 +301,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 					getNodeParameter: vi.fn((key, _index) => {
 						const parameters: Record<string, any> = {
@@ -306,20 +327,19 @@ describe('McpClientTool', () => {
 			expect(SSEClientTransport).toHaveBeenCalledWith(url, {
 				eventSourceInit: { fetch: expect.any(Function) },
 				fetch: expect.any(Function),
+				redirectPolicy: 'follow',
 			});
 
 			// Verify the eventSourceInit fetch injects auth headers and Accept header
 			const customFetch = vi.mocked(SSEClientTransport).mock.calls[0][1]?.eventSourceInit?.fetch;
 			await customFetch?.(url, {} as any);
-			expect(mockedProxyFetch).toHaveBeenCalledWith(
-				url,
-				{
-					headers: { Accept: 'text/event-stream', 'my-header': 'header-value' },
-					redirect: 'manual',
-				},
-				undefined,
-				undefined,
-			);
+			expect(mockedProxyFetch).toHaveBeenCalledOnce();
+			const [{ input: requestedUrl, init: requestInit }] = mockedProxyFetch.mock.calls[0];
+			expect(requestedUrl).toBe(url);
+			expect(requestInit?.redirect).toBe('manual');
+			const sentHeaders = new Headers(requestInit?.headers);
+			expect(sentHeaders.get('accept')).toBe('text/event-stream');
+			expect(sentHeaders.get('my-header')).toBe('header-value');
 		});
 
 		it('should support bearer auth', async () => {
@@ -338,6 +358,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 					getNodeParameter: vi.fn((key, _index) => {
 						const parameters: Record<string, any> = {
@@ -363,20 +384,19 @@ describe('McpClientTool', () => {
 			expect(SSEClientTransport).toHaveBeenCalledWith(url, {
 				eventSourceInit: { fetch: expect.any(Function) },
 				fetch: expect.any(Function),
+				redirectPolicy: 'follow',
 			});
 
 			// Verify the eventSourceInit fetch injects auth headers and Accept header
 			const customFetch = vi.mocked(SSEClientTransport).mock.calls[0][1]?.eventSourceInit?.fetch;
 			await customFetch?.(url, {} as any);
-			expect(mockedProxyFetch).toHaveBeenCalledWith(
-				url,
-				{
-					headers: { Accept: 'text/event-stream', Authorization: 'Bearer my-token' },
-					redirect: 'manual',
-				},
-				undefined,
-				undefined,
-			);
+			expect(mockedProxyFetch).toHaveBeenCalledOnce();
+			const [{ input: requestedUrl, init: requestInit }] = mockedProxyFetch.mock.calls[0];
+			expect(requestedUrl).toBe(url);
+			expect(requestInit?.redirect).toBe('manual');
+			const sentHeaders = new Headers(requestInit?.headers);
+			expect(sentHeaders.get('accept')).toBe('text/event-stream');
+			expect(sentHeaders.get('authorization')).toBe('Bearer my-token');
 		});
 
 		it('should successfully execute a tool', async () => {
@@ -397,6 +417,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() =>
 						mock<INode>({
 							typeVersion: 1,
@@ -441,6 +462,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 					logger: { debug: vi.fn(), error: vi.fn() },
 					addInputData: vi.fn(() => ({ index: 0 })),
@@ -478,6 +500,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 					logger: { debug: vi.fn(), error: vi.fn() },
 					addInputData: vi.fn(() => ({ index: 0 })),
@@ -515,6 +538,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 					logger: { debug: vi.fn(), error: vi.fn() },
 					addInputData: vi.fn(() => ({ index: 0 })),
@@ -538,7 +562,7 @@ describe('McpClientTool', () => {
 			vi.spyOn(Client.prototype, 'callTool').mockResolvedValue({
 				isError: true,
 				toolResult: 'Weather unknown at location',
-				content: [{ text: 'Weather unknown at location' }],
+				content: [{ type: 'text', text: 'Weather unknown at location' }],
 			});
 			vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({
 				tools: [
@@ -551,6 +575,7 @@ describe('McpClientTool', () => {
 			});
 
 			const supplyDataFunctions = mock<ISupplyDataFunctions>({
+				...egressHelpers<ISupplyDataFunctions>(),
 				getNode: vi.fn(() =>
 					mock<INode>({
 						typeVersion: 1,
@@ -573,7 +598,12 @@ describe('McpClientTool', () => {
 
 			const tools = (supplyDataResult.response as StructuredToolkit).getTools();
 			const toolResult = await tools[0].invoke({ location: 'Berlin' });
-			expect(toolResult).toEqual('Weather unknown at location');
+			expect(toolResult).toEqual(
+				JSON.stringify({
+					isError: true,
+					content: [{ type: 'text', text: 'Weather unknown at location' }],
+				}),
+			);
 			expect(supplyDataFunctions.addOutputData).toHaveBeenCalledWith(
 				NodeConnectionTypes.AiTool,
 				0,
@@ -600,6 +630,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 					logger: { debug: vi.fn(), error: vi.fn() },
 					addInputData: vi.fn(() => ({ index: 0 })),
@@ -642,6 +673,7 @@ describe('McpClientTool', () => {
 			await expect(
 				new McpClientTool().supplyData.call(
 					mock<ISupplyDataFunctions>({
+						...egressHelpers<ISupplyDataFunctions>(),
 						getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 						logger: { debug: vi.fn(), error: vi.fn() },
 						addInputData: vi.fn(() => ({ index: 0 })),
@@ -673,6 +705,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 					logger: { debug: vi.fn(), error: vi.fn() },
 					addInputData: vi.fn(() => ({ index: 0 })),
@@ -716,6 +749,7 @@ describe('McpClientTool', () => {
 			const errorLogger = vi.fn();
 
 			const supplyDataFunctions = mock<ISupplyDataFunctions>({
+				...egressHelpers<ISupplyDataFunctions>(),
 				getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 				logger: { debug: vi.fn(), error: errorLogger },
 				addInputData: vi.fn(() => ({ index: 0 })),
@@ -751,6 +785,7 @@ describe('McpClientTool', () => {
 			await expect(
 				new McpClientTool().supplyData.call(
 					mock<ISupplyDataFunctions>({
+						...egressHelpers<ISupplyDataFunctions>(),
 						getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 						logger: { debug: vi.fn(), error: vi.fn() },
 						addInputData: vi.fn(() => ({ index: 0 })),
@@ -784,6 +819,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'McpClientTool' })),
 					logger: { debug: vi.fn(), error: vi.fn() },
 					addInputData: vi.fn(() => ({ index: 0 })),
@@ -823,6 +859,7 @@ describe('McpClientTool', () => {
 			const mockNode = mock<INode>({ typeVersion: 1, name: 'MCP Client' });
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() => mockNode),
 					getNodeParameter: vi.fn((key, _index) => {
 						const parameters: Record<string, any> = {
@@ -840,7 +877,10 @@ describe('McpClientTool', () => {
 			const tools = (supplyDataResult.response as StructuredToolkit).getTools();
 
 			await expect(tools[0].invoke({ input: 'foo' })).resolves.toEqual(
-				'MCP error -32001: Request timed out',
+				JSON.stringify({
+					isError: true,
+					content: [{ type: 'text', text: 'MCP error -32001: Request timed out' }],
+				}),
 			);
 			expect(callToolSpy).toHaveBeenCalledWith(
 				expect.any(Object), // params
@@ -871,6 +911,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -939,6 +980,7 @@ describe('McpClientTool', () => {
 
 				const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 				const mockExecuteFunctions = mock<any>({
+					...egressHelpers<IExecuteFunctions>(),
 					getNode: vi.fn(() => mockNode),
 					getInputData: vi.fn(() => [
 						{
@@ -1004,6 +1046,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1057,6 +1100,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1.2, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1110,6 +1154,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1.3, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1156,6 +1201,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1.3, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1201,6 +1247,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1234,6 +1281,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1282,6 +1330,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1354,6 +1403,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1406,6 +1456,7 @@ describe('McpClientTool', () => {
 				name: 'GitHub MCP',
 			});
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1461,6 +1512,7 @@ describe('McpClientTool', () => {
 			const mockExecuteFunctions = mockDeep<IExecuteFunctions>();
 			mockExecuteFunctions.getNode.mockReturnValue(mockNode);
 			mockExecuteFunctions.getExecutionCancelSignal.mockReturnValue(abortController.signal);
+			mockExecuteFunctions.helpers.getSecureEgressFilter.mockReturnValue(createTestEgressFilter());
 			mockExecuteFunctions.getInputData.mockReturnValue([
 				{
 					json: {
@@ -1509,6 +1561,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [{ json: { tool: 'get_weather', location: 'Berlin' } }]),
 				getNodeParameter: vi.fn((key) => {
@@ -1550,6 +1603,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool', name: 'MCP Client' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1604,6 +1658,7 @@ describe('McpClientTool', () => {
 			});
 
 			const mockSupplyDataFunctions = mock<ISupplyDataFunctions>({
+				...egressHelpers<ISupplyDataFunctions>(),
 				getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 				logger: { debug: vi.fn(), error: vi.fn() },
 				addInputData: vi.fn(() => ({ index: 0 })),
@@ -1645,6 +1700,7 @@ describe('McpClientTool', () => {
 			});
 
 			const mockSupplyDataFunctions = mock<ISupplyDataFunctions>({
+				...egressHelpers<ISupplyDataFunctions>(),
 				getNode: vi.fn(() => mock<INode>({ typeVersion: 1, name: 'MCP Client' })),
 				logger: { debug: vi.fn(), error: vi.fn() },
 				addInputData: vi.fn(() => ({ index: 0 })),
@@ -1680,6 +1736,7 @@ describe('McpClientTool', () => {
 				name: 'McpClientTool',
 			});
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1723,6 +1780,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [
 					{
@@ -1757,6 +1815,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [{ json: { tool: 'get_weather' } }]),
 				getNodeParameter: vi.fn((key) => {
@@ -1794,6 +1853,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [{ json: { location: 'Berlin' } }]),
 				getNodeParameter: vi.fn((key) => {
@@ -1823,6 +1883,7 @@ describe('McpClientTool', () => {
 
 			const mockNode = mock<INode>({ typeVersion: 1, type: 'mcpClientTool' });
 			const mockExecuteFunctions = mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				getInputData: vi.fn(() => [{ json: { tool: 'get_weather' } }]),
 				getNodeParameter: vi.fn((key) => {
@@ -1861,6 +1922,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() =>
 						mock<INode>({
 							typeVersion: 1,
@@ -1900,6 +1962,7 @@ describe('McpClientTool', () => {
 
 			const supplyDataResult = await new McpClientTool().supplyData.call(
 				mock<ISupplyDataFunctions>({
+					...egressHelpers<ISupplyDataFunctions>(),
 					getNode: vi.fn(() =>
 						mock<INode>({
 							typeVersion: 1,
@@ -1940,6 +2003,7 @@ describe('McpClientTool', () => {
 			credentials: Record<string, unknown>;
 		}) =>
 			mock<ISupplyDataFunctions>({
+				...egressHelpers<ISupplyDataFunctions>(),
 				getNode: vi.fn(() =>
 					mock<INode>({
 						typeVersion: 1,
@@ -2062,6 +2126,7 @@ describe('McpClientTool', () => {
 
 			const node = mock<INode>({ typeVersion: 1 });
 			const ctx = mock<ILoadOptionsFunctions>({
+				...egressHelpers<ILoadOptionsFunctions>(),
 				getNode: vi.fn(() => node),
 				getNodeParameter: vi.fn((key) => {
 					const params: Record<string, any> = {
@@ -2087,6 +2152,7 @@ describe('McpClientTool', () => {
 		function createCtx(typeVersion: number) {
 			const mockNode = mock<INode>({ typeVersion, type: 'mcpClientTool', name: 'MCP Client' });
 			return mock<any>({
+				...egressHelpers<IExecuteFunctions>(),
 				getNode: vi.fn(() => mockNode),
 				logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 				getExecutionId: vi.fn(() => 'exec-gating'),

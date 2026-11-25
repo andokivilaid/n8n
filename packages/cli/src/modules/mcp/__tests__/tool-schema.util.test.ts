@@ -1,6 +1,13 @@
+import { zodToDraft202012 } from '@n8n/ai-utilities/json-schema';
 import { z } from 'zod';
 
 import { shapeToStandardSchema } from '../tool-schema.util';
+
+// Pass through to the real conversion, so the tests can count the calls.
+vi.mock('@n8n/ai-utilities/json-schema', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('@n8n/ai-utilities/json-schema')>();
+	return { ...actual, zodToDraft202012: vi.fn(actual.zodToDraft202012) };
+});
 
 describe('shapeToStandardSchema', () => {
 	const schema = shapeToStandardSchema({
@@ -8,10 +15,12 @@ describe('shapeToStandardSchema', () => {
 		limit: z.number().int().min(1),
 	});
 
-	it('advertises the shape as JSON Schema without a $schema marker', () => {
+	// Claude Desktop and other strict clients reject a tool whose schema declares
+	// draft-07, and MCP requires every client to support 2020-12.
+	it('advertises the shape as JSON Schema 2020-12', () => {
 		const json = schema['~standard'].jsonSchema.input({ target: 'draft-2020-12' });
 
-		expect(json.$schema).toBeUndefined();
+		expect(json.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
 		expect(json).toMatchObject({
 			type: 'object',
 			properties: {
@@ -20,6 +29,31 @@ describe('shapeToStandardSchema', () => {
 			},
 			required: ['limit'],
 		});
+	});
+
+	it('advertises tuples with the 2020-12 keywords', () => {
+		const withTuple = shapeToStandardSchema({
+			range: z.tuple([z.number(), z.number()]).rest(z.number()),
+		});
+
+		const json = withTuple['~standard'].jsonSchema.input({ target: 'draft-2020-12' });
+
+		expect(json.properties).toMatchObject({
+			range: {
+				type: 'array',
+				prefixItems: [{ type: 'number' }, { type: 'number' }],
+				items: { type: 'number' },
+			},
+		});
+		expect(JSON.stringify(json)).not.toContain('additionalItems');
+	});
+
+	it('declares the same dialect on input and output', () => {
+		const standard = schema['~standard'];
+
+		expect(standard.jsonSchema.output({ target: 'draft-2020-12' }).$schema).toBe(
+			standard.jsonSchema.input({ target: 'draft-2020-12' }).$schema,
+		);
 	});
 
 	it('validates through the original zod object', async () => {
@@ -59,6 +93,83 @@ describe('shapeToStandardSchema', () => {
 
 		expect(handledError).toEqual({
 			value: { executionId: null, status: 'error', error: 'workflow failed' },
+		});
+	});
+
+	// A Zod instance reused across two properties must be inlined at both use
+	// sites. The generator's default strategy dedupes the second occurrence into
+	// a `$ref` to a `#/properties/...` path, which strict clients (e.g. Zod v4's
+	// `fromJSONSchema`) refuse to resolve — they only follow refs into `$defs` —
+	// leaving the tool's arguments unvalidated client-side.
+	it('inlines a schema instance that is reused across the shape instead of emitting a $ref', () => {
+		const sharedPosition = z.array(z.number()).length(2).describe('Canvas [x, y].');
+		const reusing = shapeToStandardSchema({
+			node: z.object({ position: sharedPosition.optional() }).optional(),
+			position: sharedPosition.optional().describe('For setNodePosition.'),
+		});
+
+		const json = reusing['~standard'].jsonSchema.input({ target: 'draft-2020-12' });
+
+		expect(JSON.stringify(json)).not.toContain('$ref');
+		expect(json.properties).toMatchObject({
+			node: {
+				type: 'object',
+				properties: {
+					position: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+				},
+			},
+			// The second occurrence keeps its own description override.
+			position: {
+				type: 'array',
+				items: { type: 'number' },
+				minItems: 2,
+				maxItems: 2,
+				description: 'For setNodePosition.',
+			},
+		});
+	});
+
+	// The MCP server is rebuilt on every request, and most tool shapes are
+	// module-level constants. The conversion must run once for each shape, and
+	// only when a client reads the JSON Schema.
+	describe('JSON Schema conversion', () => {
+		const options = { target: 'draft-2020-12' } as const;
+
+		beforeEach(() => {
+			vi.mocked(zodToDraft202012).mockClear();
+		});
+
+		it('does not convert the shape until the JSON Schema is read', async () => {
+			const bridged = shapeToStandardSchema({ limit: z.number().int().min(1) });
+
+			expect(await bridged['~standard'].validate({ limit: 2 })).toEqual({ value: { limit: 2 } });
+			expect(await bridged['~standard'].validate({ limit: 0 })).toHaveProperty('issues');
+			expect(zodToDraft202012).not.toHaveBeenCalled();
+
+			bridged['~standard'].jsonSchema.input(options);
+
+			expect(zodToDraft202012).toHaveBeenCalledTimes(1);
+		});
+
+		it('converts a shape once when each request bridges it again', () => {
+			const shape = { query: z.string().optional() };
+			const first = shapeToStandardSchema(shape)['~standard'].jsonSchema;
+			const second = shapeToStandardSchema(shape)['~standard'].jsonSchema;
+
+			const json = first.input(options);
+
+			expect(first.output(options)).toBe(json);
+			expect(second.input(options)).toBe(json);
+			expect(second.output(options)).toBe(json);
+			expect(zodToDraft202012).toHaveBeenCalledTimes(1);
+		});
+
+		it('converts different shape objects separately', () => {
+			const first = shapeToStandardSchema({ query: z.string() })['~standard'].jsonSchema;
+			const second = shapeToStandardSchema({ query: z.string() })['~standard'].jsonSchema;
+
+			expect(second.input(options)).not.toBe(first.input(options));
+			expect(zodToDraft202012).toHaveBeenCalledTimes(2);
 		});
 	});
 });

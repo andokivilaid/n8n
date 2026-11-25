@@ -15,6 +15,14 @@ vi.mock('../composables/useProjectAgentsList', () => ({
 	}),
 }));
 
+const triggerRedesignFlag = vi.hoisted(() => ({ value: false }));
+vi.mock('../composables/useAgentTriggerRedesignFlag', async () => {
+	const { computed } = await import('vue');
+	return {
+		useAgentTriggerRedesignFlag: () => computed(() => triggerRedesignFlag.value),
+	};
+});
+
 // First mount of these SFCs eats the Vite transform cost; give them headroom.
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -28,7 +36,7 @@ describe('AgentBuilderEditorColumn — childrenDisabled composes streaming and c
 			props: {
 				activeMainTab: 'agent',
 				mainTabOptions: [
-					{ label: 'Agent', value: 'agent' },
+					{ label: 'Build', value: 'agent' },
 					{ label: 'Sessions', value: 'sessions' },
 					{ label: 'Settings', value: 'settings' },
 				],
@@ -110,6 +118,7 @@ describe('AgentBuilderEditorColumn — childrenDisabled composes streaming and c
 
 		expect(wrapper.findComponent({ name: 'AgentIdentityHeader' }).props('disabled')).toBe(true);
 		expect(wrapper.findComponent({ name: 'AgentInfoPanel' }).props('disabled')).toBe(true);
+		expect(wrapper.getComponent({ name: 'AgentTriggersSection' }).props('disabled')).toBe(true);
 		expect(wrapper.findComponent({ name: 'AgentCapabilitiesSection' }).props('disabled')).toBe(
 			true,
 		);
@@ -126,7 +135,7 @@ describe('AgentBuilderEditorColumn — childrenDisabled composes streaming and c
 			props: {
 				activeMainTab: 'settings',
 				mainTabOptions: [
-					{ label: 'Agent', value: 'agent' },
+					{ label: 'Build', value: 'agent' },
 					{ label: 'Sessions', value: 'sessions' },
 					{ label: 'Settings', value: 'settings' },
 				],
@@ -178,7 +187,80 @@ describe('AgentBuilderEditorColumn — childrenDisabled composes streaming and c
 		});
 
 		expect(wrapper.findComponent({ name: 'AgentSubAgentsPanel' }).props('disabled')).toBe(true);
-		expect(wrapper.findComponent({ name: 'AgentMemoryPanel' }).props('disabled')).toBe(true);
+		expect(wrapper.findComponent({ name: 'AgentMemoryPanel' }).exists()).toBe(false);
 		expect(wrapper.findComponent({ name: 'AgentAdvancedPanel' }).props('disabled')).toBe(true);
 	});
+});
+
+const REDESIGN_PANEL_ORDER = [
+	'agent-triggers-panel',
+	'agent-info-panel',
+	'agent-skills-panel',
+	'agent-capabilities-panel',
+	'agent-memory-panel',
+];
+
+const DEFAULT_PANEL_ORDER = [
+	'agent-info-panel',
+	'agent-skills-panel',
+	'agent-triggers-panel',
+	'agent-capabilities-panel',
+	'agent-memory-panel',
+];
+
+describe('AgentBuilderEditorColumn — Agent tab panel order', () => {
+	it.each([
+		{ flag: true, expected: REDESIGN_PANEL_ORDER },
+		{ flag: false, expected: DEFAULT_PANEL_ORDER },
+	])(
+		'renders panels in order when the trigger redesign flag is $flag',
+		async ({ flag, expected }) => {
+			triggerRedesignFlag.value = flag;
+
+			const { default: AgentBuilderEditorColumn } = await import(
+				'../components/AgentBuilderEditorColumn.vue'
+			);
+
+			const wrapper = mount(AgentBuilderEditorColumn, {
+				props: {
+					activeMainTab: 'agent',
+					mainTabOptions: [{ label: 'Build', value: 'agent' }],
+					localConfig: {} as never,
+					agent: null,
+					projectId: 'p1',
+					agentId: 'a1',
+					agentFiles: [],
+					agentFilesLoading: false,
+					agentFilesUploading: false,
+					knowledgeBaseEnabled: true,
+					appliedSkills: [],
+					connectedTriggers: [],
+					canEditAgent: true,
+					executionsDescription: '',
+				},
+				global: {
+					plugins: [createTestingPinia({ createSpy: vi.fn })],
+					stubs: {
+						N8nTabs: { template: '<div />', props: ['modelValue', 'options'] },
+						AgentIdentityHeader: { template: '<div />' },
+						AgentTestButton: { template: '<div />' },
+						AgentInfoPanel: { template: '<div data-testid="agent-info-panel" />' },
+						AgentTriggersSection: { template: '<div />' },
+						AgentSkillsSection: { template: '<div />' },
+						AgentCapabilitiesSection: { template: '<div />' },
+						AgentMemoryPanel: { template: '<div data-testid="agent-memory-panel" />' },
+					},
+				},
+			});
+
+			const tabContent = wrapper.get('[data-testid="agent-tab-content"]');
+			const selector = expected.map((id) => `[data-testid="${id}"]`).join(',');
+			/** querySelectorAll returns matches in document (tree) order. */
+			const renderedOrder = Array.from(tabContent.element.querySelectorAll(selector)).map((el) =>
+				el.getAttribute('data-testid'),
+			);
+
+			expect(renderedOrder).toEqual(expected);
+		},
+	);
 });

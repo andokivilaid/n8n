@@ -1,28 +1,43 @@
-# Node.js compiled with V8 pointer compression, for the n8n `-pc` image variant.
+# check=skip=InvalidDefaultArgInFrom
+# Node.js compiled from source, with the V8 patches in ./patches applied.
 #
-# No official pointer-compressed Node binaries exist (nodejs.org publishes none,
-# and Docker Hub node images are stock), so this image compiles Node from the
-# GPG-verified source tarball, following the source-build path of the official
-# docker-node Alpine recipe with one added configure flag.
+# Three images build from this file:
+#   node-pc         - Node 26 with V8 pointer compression, for the n8n `-pc`
+#                     image variant. No official pointer-compressed Node
+#                     binaries exist (nodejs.org publishes none, and Docker Hub
+#                     node images are stock).
+#   node-patched-24 - stock-configured Node 24 for the 1.x image, so that the
+#                     1.x line also runs a Node whose V8 we control.
+#   node-patched-26 - stock-configured Node 26 for the release images.
 #
-# Two published targets:
-#   runtime (default) - drop-in sibling of n8nio/base, layered on the same DHI
-#                       base with our compiled Node swapped in
-#   dev               - plain Alpine with apk usable, for the n8n builder
-#                       stage, which must compile native addons against this
-#                       Node's headers
-ARG NODE_VERSION=26.5.1
+# All follow the source-build path of the official docker-node Alpine recipe.
+# The build applies the V8 patches in ./patches: upstream V8 fixes that Node
+# has not backported to the release line yet. The patch count becomes the
+# -n8n.N suffix of the V8 version, and check-v8-patches.js proves that the
+# compiled Node carries the patches and the expected configure flags.
+#
+# Publishes the `dev` target per image: plain Alpine with our compiled Node,
+# npm, and headers under /usr/local. The n8n image builds native addons in this
+# image and copies /usr/local/bin and /usr/local/lib onto n8nio/base, so OS base
+# refreshes do not recompile Node.
+#
+# The node-pc and node-patched-* targets in docker/docker-bake.hcl set these.
+# Do not use plain `docker build`.
+ARG NODE_VERSION
+ARG ALPINE_IMAGE
+ARG ENABLE_POINTER_COMPRESSION=true
 # Compiling V8 needs 1.5-2 GB of memory per parallel job. Lower this on
 # builders whose memory-to-core ratio cannot cover all cores.
 ARG MAKE_JOBS=
 
-# Pinned to a multi-arch index digest (linux/amd64 + linux/arm64) for reproducible builds.
-# Bump the tag and digest together when updating.
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS builder
+FROM ${ALPINE_IMAGE} AS builder
 ARG NODE_VERSION
 ARG MAKE_JOBS
+ARG ENABLE_POINTER_COMPRESSION
 
-RUN apk add --no-cache --virtual .build-deps \
+COPY docker/images/node-pc/patches/ /patches/
+RUN case "$ENABLE_POINTER_COMPRESSION" in true|false) ;; *) echo "ENABLE_POINTER_COMPRESSION must be true or false, got '$ENABLE_POINTER_COMPRESSION'" && exit 1;; esac \
+    && apk add --no-cache --virtual .build-deps \
         binutils-gold \
         curl \
         g++ \
@@ -31,6 +46,7 @@ RUN apk add --no-cache --virtual .build-deps \
         libgcc \
         linux-headers \
         make \
+        patch \
         python3 \
         py-setuptools \
         rust \
@@ -61,70 +77,51 @@ RUN apk add --no-cache --virtual .build-deps \
     && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc" \
     && gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc \
     && gpgconf --kill all \
-    && rm -rf "$GNUPGHOME" \
+    # dirmngr exits asynchronously and can unlink S.dirmngr mid-rm on BusyBox.
+    && { rm -rf "$GNUPGHOME" || { sleep 1 && rm -rf "$GNUPGHOME"; }; } \
     && grep " node-v$NODE_VERSION.tar.xz\$" SHASUMS256.txt | sha256sum -c - \
     && tar -xf "node-v$NODE_VERSION.tar.xz" \
     && cd "node-v$NODE_VERSION" \
-    && ./configure --experimental-enable-pointer-compression \
+    && for p in /patches/*.patch; do patch -p1 -N -d deps/v8 -i "$p" || exit 1; done \
+    # Mark the patched V8 in process.versions.v8 with the patch count,
+    # e.g. 14.6.202.34-node.40-n8n.1
+    && n=$(ls /patches/*.patch | wc -l) \
+    && sed -i "s/^\([[:space:]]*'v8_embedder_string': '-node\.[0-9]*\)'/\1-n8n.$n'/" common.gypi \
+    && grep -q "n8n\.$n'" common.gypi \
+    && ./configure $([ "$ENABLE_POINTER_COMPRESSION" = true ] && echo --experimental-enable-pointer-compression) \
     && make -j"${MAKE_JOBS:-$(getconf _NPROCESSORS_ONLN)}" V= \
     && make install DESTDIR=/node-install \
     # Remove unused OpenSSL headers to save ~34MB. See https://github.com/nodejs/node/issues/46451
     && find /node-install/usr/local/include/node/openssl/archs -mindepth 1 -maxdepth 1 ! -name "$OPENSSL_ARCH" -exec rm -rf {} \;
 
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS base
+# Remove this override when Node 26 bundles brace-expansion 5.0.12 or later.
+RUN set -eu; \
+    if [ "${NODE_VERSION%%.*}" != 26 ]; then exit 0; fi; \
+    cd /node-install/usr/local/lib/node_modules/npm/node_modules; \
+    needs_update=$(/node-install/usr/local/bin/node -p \
+        "require('./semver').lt(require('./brace-expansion/package.json').version, '5.0.12')"); \
+    if [ "$needs_update" = false ]; then exit 0; fi; \
+    archive=/tmp/brace-expansion.tgz; \
+    curl -fsSL https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz -o "$archive"; \
+    echo "ef8448ec78f20b692f04fa6d01f39b5ab34c66404bea3429f5a39c6c9e0be8b4  $archive" | sha256sum -c -; \
+    rm -rf brace-expansion; \
+    mkdir brace-expansion; \
+    tar -xzf "$archive" --strip-components=1 -C brace-expansion; \
+    rm "$archive"
+
+FROM ${ALPINE_IMAGE} AS base
+ARG ENABLE_POINTER_COMPRESSION
 
 RUN addgroup -g 1000 node \
     && adduser -u 1000 -G node -s /bin/sh -D node \
     && apk add --no-cache libstdc++
 COPY --from=builder /node-install/usr/local /usr/local
+COPY docker/images/node-pc/check-v8-patches.js /tmp/check-v8-patches.js
 RUN node --version && npm --version \
-    && node -e "if (!process.config.variables.v8_enable_pointer_compression) { throw new Error('pointer compression is not enabled') }"
+    && node /tmp/check-v8-patches.js && rm /tmp/check-v8-patches.js
 
 FROM base AS dev
 # node-gyp must compile native addons against this build's headers so they pick
-# up the pointer compression defines, never against downloaded stock headers.
+# up this build's defines (e.g. pointer compression), never against downloaded
+# stock headers.
 ENV npm_config_nodedir=/usr/local
-
-# ---------------------------------------------------------------------------
-
-# Runtime layers on the same DHI base as n8n-base, so both siblings share
-# Docker's OS-layer patching and attestations. Only the Node binary is ours:
-# DHI's stock Node (at /usr/bin on Alpine) is removed and replaced by the
-# pointer-compressed build.
-# Pinned to a multi-arch index digest (linux/amd64 + linux/arm64) for reproducible builds.
-# Bump the tag and digest together when updating.
-FROM dhi.io/node:26.5.1-alpine3.24-dev@sha256:c4062f85acd1ca91ffb7d15048dcc5f15a922d630e65eb3c3c0dcdcef6ea36d8 AS runtime
-
-RUN rm -f /usr/bin/node /usr/bin/nodejs /usr/bin/npm /usr/bin/npx /usr/bin/corepack
-COPY --from=builder /node-install/usr/local /usr/local
-RUN node --version \
-    && node -e "if (!process.config.variables.v8_enable_pointer_compression) { throw new Error('pointer compression is not enabled') }"
-
-# Mirrors docker/images/n8n-base/Dockerfile so the n8n runtime stage can swap
-# between the two.
-RUN apk add --no-cache busybox-binsh && \
-    apk --no-cache add --virtual .build-deps-fonts msttcorefonts-installer fontconfig && \
-    update-ms-fonts && \
-    fc-cache -f && \
-    apk del .build-deps-fonts && \
-    find /usr/share/fonts/truetype/msttcorefonts/ -type l -exec unlink {} \; && \
-    # No blanket `apk upgrade` — patched bytes come from bumping the pinned
-    # DHI digest instead, same policy as n8n-base.
-    apk add --no-cache \
-        openssh \
-        graphicsmagick \
-        tini \
-        tzdata \
-        ca-certificates \
-        libc6-compat && \
-    rm -rf /tmp/* /root/.npm /root/.cache/node /opt/yarn* && \
-    apk del apk-tools
-
-# The compiled build lives at /usr/local/bin, which is what the cloud launch
-# and AppArmor profile expect. Keep the stock /usr/bin path working for
-# anything that references it.
-RUN ln -sf /usr/local/bin/node /usr/bin/node
-
-WORKDIR /home/node
-ENV NODE_PATH=/usr/local/lib/node_modules
-EXPOSE 5678/tcp

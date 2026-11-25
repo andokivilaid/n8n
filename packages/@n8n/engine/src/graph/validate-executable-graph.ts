@@ -1,15 +1,9 @@
-import { UnimplementedError } from '../common';
+import { GraphValidationError } from './graph-validation.error';
+import { validateLoops } from './loops';
 import type { WorkflowGraph } from './workflow-graph';
+import { createNodeLabeler, getDescendantNodeIds } from './workflow-graph-queries';
 
-const MAX_SLOT_INDEX = 100;
-
-/** Thrown when a graph fails a structural rule and can never execute. */
-export class GraphValidationError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'GraphValidationError';
-	}
-}
+export const MAX_SLOT_INDEX = 100;
 
 /**
  * Asserts the graph is one the engine is willing to execute, before any state
@@ -28,49 +22,46 @@ export function validateExecutableGraph(graph: WorkflowGraph): void {
 		throw new GraphValidationError('Graph must have exactly one trigger node');
 	}
 
-	// TODO(CAT-2875): loop iteration needs re-runnable steps; until that lands,
-	// graphs with back-edges are rejected outright rather than deadlocking.
-	if (graph.edges.some((edge) => edge.isBackEdge)) {
-		throw new UnimplementedError('Graphs with back-edges (loops) are not supported yet');
+	const name = createNodeLabeler(graph);
+
+	// A duplicate edge would deliver the same items twice. The v1 converter drops duplicates.
+	const seenEdges = new Set<string>();
+	for (const edge of graph.edges) {
+		const key = JSON.stringify([edge.from, edge.outputIndex, edge.to, edge.inputIndex]);
+		if (seenEdges.has(key)) {
+			throw new GraphValidationError(
+				`Edge ${name(edge.from)} -> ${name(edge.to)} from output slot ${edge.outputIndex} into input slot ${edge.inputIndex} appears more than once`,
+			);
+		}
+		seenEdges.add(key);
+	}
+
+	validateLoops(graph);
+
+	const [trigger] = triggers;
+	const reachable = new Set([trigger.id, ...getDescendantNodeIds(graph, trigger.id)]);
+	for (const edge of graph.edges) {
+		if (reachable.has(edge.to) && !reachable.has(edge.from)) {
+			throw new GraphValidationError(
+				`Edge ${name(edge.from)} -> ${name(edge.to)} feeds a node the trigger reaches from one it cannot reach, so ${name(edge.to)} would wait on ${name(edge.from)} forever`,
+			);
+		}
 	}
 
 	// Slot indices are structural, so they're enforced here rather than left to
-	// the transport boundary. TODO(CAT-3042): enforce an upper bound too.
+	// the transport boundary.
 	for (const edge of graph.edges) {
 		for (const index of [edge.outputIndex, edge.inputIndex]) {
 			if (!Number.isInteger(index) || index < 0) {
 				throw new GraphValidationError(
-					`Edge ${edge.from} → ${edge.to} has slot index ${index}; slot indices are non-negative integers`,
+					`Edge ${name(edge.from)} -> ${name(edge.to)} has slot index ${index}; slot indices are non-negative integers`,
 				);
 			}
 			if (index > MAX_SLOT_INDEX) {
 				throw new GraphValidationError(
-					`Edge ${edge.from} → ${edge.to} has slot index ${index}; slot indices above ${MAX_SLOT_INDEX} are not supported yet`,
+					`Edge ${name(edge.from)} -> ${name(edge.to)} has slot index ${index}; slot indices above ${MAX_SLOT_INDEX} are not supported yet`,
 				);
 			}
 		}
-	}
-
-	// TODO(CAT-2874): multi-slot outputs arrive with branching; until then only
-	// output slot 0 fires, and the runtime can assume single-slot outputs.
-	for (const edge of graph.edges) {
-		if (edge.outputIndex !== 0) {
-			throw new UnimplementedError(
-				`Edge ${edge.from} → ${edge.to} leaves output slot ${edge.outputIndex}; only output slot 0 is supported yet`,
-			);
-		}
-	}
-
-	// TODO(CAT-3982): same-slot convergence gets a defined meaning (concatenation);
-	// until then it is rejected rather than given accidental semantics.
-	const seenInputSlots = new Set<string>();
-	for (const edge of graph.edges) {
-		const slot = `${edge.to}#${edge.inputIndex}`;
-		if (seenInputSlots.has(slot)) {
-			throw new UnimplementedError(
-				`Node ${edge.to} has more than one edge into input slot ${edge.inputIndex}; converging branches on one slot is not supported yet`,
-			);
-		}
-		seenInputSlots.add(slot);
 	}
 }

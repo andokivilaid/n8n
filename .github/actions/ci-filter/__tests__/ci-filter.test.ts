@@ -13,6 +13,8 @@ import {
 	getChangedFiles,
 	getAddedFiles,
 	getMergeBase,
+	getIncrementalChanges,
+	resolveHeadRef,
 } from '../ci-filter.mjs';
 
 // --- matchGlob ---
@@ -54,6 +56,15 @@ describe('matchGlob', () => {
 	it('scoped package pattern does not match other packages', () => {
 		assert.ok(
 			!matchGlob('packages/@n8n/config/src/index.ts', 'packages/@n8n/task-runner-python/**'),
+		);
+	});
+
+	it('backend module pattern matches packaged module files', () => {
+		assert.ok(
+			matchGlob(
+				'packages/modules/insights/backend/src/insights.service.ts',
+				'packages/modules/*/backend/**',
+			),
 		);
 	});
 
@@ -241,7 +252,7 @@ describe('runtime filter', () => {
 		'!**/CHANGELOG.md',
 		'!**/*.test.ts',
 		'!**/*.spec.ts',
-		'!packages/testing/playwright/**',
+		'!packages/quality/testing/playwright/**',
 		'!packages/frontend/@n8n/storybook/**',
 		'!scripts/agent-setup.mjs',
 		'!scripts/backend-module/**',
@@ -264,7 +275,7 @@ describe('runtime filter', () => {
 
 	it('does not trigger on playwright tests', () => {
 		assert.equal(
-			evaluateFilter(['packages/testing/playwright/tests/x.spec.ts'], runtimePatterns),
+			evaluateFilter(['packages/quality/testing/playwright/tests/x.spec.ts'], runtimePatterns),
 			false,
 		);
 	});
@@ -392,6 +403,100 @@ describe('getChangedFiles', () => {
 
 	it('getAddedFiles rejects unsafe base refs', () => {
 		assert.throws(() => getAddedFiles('main; rm -rf /'), /Unsafe/);
+	});
+});
+
+// --- resolveHeadRef ---
+
+describe('resolveHeadRef', () => {
+	it('diffs the PR head (second parent of the test merge) on pull request events', () => {
+		assert.equal(resolveHeadRef('pull_request'), 'HEAD^2');
+		assert.equal(resolveHeadRef('pull_request_review'), 'HEAD^2');
+	});
+
+	it('diffs HEAD on every other event', () => {
+		assert.equal(resolveHeadRef('merge_group'), 'HEAD');
+		assert.equal(resolveHeadRef('workflow_dispatch'), 'HEAD');
+		assert.equal(resolveHeadRef(undefined), 'HEAD');
+	});
+});
+
+// --- getChangedFiles on a stacked PR's test-merge commit (shallow clone) ---
+
+describe('getChangedFiles (stacked PR test merge)', () => {
+	const builderDir = mkdtempSync(join(tmpdir(), 'ci-filter-build-stack-'));
+	const remoteDir = mkdtempSync(join(tmpdir(), 'ci-filter-remote-stack-'));
+	const repoDir = mkdtempSync(join(tmpdir(), 'ci-filter-stack-'));
+	const originalCwd = process.cwd();
+	const originalStep = process.env.CI_FILTER_DEEPEN_STEP;
+	const git = (args: string[], cwd: string) =>
+		execFileSync('git', args, { cwd, stdio: 'pipe' }).toString().trim();
+
+	before(() => {
+		execFileSync('git', ['init', '--bare', '-b', 'main', remoteDir], { stdio: 'pipe' });
+		git(['init', '-b', 'main'], builderDir);
+		git(['config', 'user.email', 'test@test.local'], builderDir);
+		git(['config', 'user.name', 'test'], builderDir);
+		git(['remote', 'add', 'origin', remoteDir], builderDir);
+
+		writeFileSync(join(builderDir, 'shared.ts'), 'shared\n');
+		git(['add', '.'], builderDir);
+		git(['commit', '-m', 'root'], builderDir);
+		git(['push', 'origin', 'main'], builderDir);
+
+		// Bottom of the stack: parent PR branch off root
+		git(['checkout', '-b', 'parent-branch'], builderDir);
+		writeFileSync(join(builderDir, 'parent.ts'), 'parent\n');
+		git(['add', '.'], builderDir);
+		git(['commit', '-m', 'parent PR change'], builderDir);
+		git(['push', 'origin', 'parent-branch'], builderDir);
+
+		// Top of the stack: this PR branches off the parent PR
+		git(['checkout', '-b', 'pr-branch'], builderDir);
+		writeFileSync(join(builderDir, 'pr-only.ts'), 'pr\n');
+		git(['add', '.'], builderDir);
+		git(['commit', '-m', 'PR change'], builderDir);
+
+		// main drifts after the stack was created
+		git(['checkout', 'main'], builderDir);
+		writeFileSync(join(builderDir, 'shared.ts'), 'shared\ndrift\n');
+		git(['commit', '-am', 'main moves'], builderDir);
+		git(['push', 'origin', 'main'], builderDir);
+
+		// GitHub builds the parent PR's test merge against main, then builds
+		// this PR's test merge on top of it instead of on parent-branch.
+		git(['checkout', '--detach', 'main'], builderDir);
+		git(['merge', '--no-ff', '-m', 'Merge parent-branch into main', 'parent-branch'], builderDir);
+		git(['merge', '--no-ff', '-m', 'Merge pr-branch into parent merge', 'pr-branch'], builderDir);
+		git(['push', 'origin', 'HEAD:refs/pull/1/merge'], builderDir);
+
+		// Mirror actions/checkout: depth-1 fetch of the test-merge ref
+		git(['init'], repoDir);
+		git(['remote', 'add', 'origin', `file://${remoteDir}`], repoDir);
+		git(['fetch', '--depth=1', 'origin', '+refs/pull/1/merge:refs/remotes/pull/1/merge'], repoDir);
+		git(['checkout', '--force', 'refs/remotes/pull/1/merge'], repoDir);
+		process.env.CI_FILTER_DEEPEN_STEP = '1';
+		process.chdir(repoDir);
+	});
+
+	after(() => {
+		process.chdir(originalCwd);
+		if (originalStep === undefined) delete process.env.CI_FILTER_DEEPEN_STEP;
+		else process.env.CI_FILTER_DEEPEN_STEP = originalStep;
+		rmSync(builderDir, { recursive: true, force: true });
+		rmSync(remoteDir, { recursive: true, force: true });
+		rmSync(repoDir, { recursive: true, force: true });
+	});
+
+	it('diffing HEAD reports the base-branch drift carried by the parent test merge', () => {
+		assert.equal(git(['rev-parse', '--is-shallow-repository'], repoDir), 'true');
+		assert.deepEqual(getChangedFiles('parent-branch', 'HEAD').sort(), ['pr-only.ts', 'shared.ts']);
+	});
+
+	it('diffing HEAD^2 reports only the files this PR changes', () => {
+		assert.deepEqual(getChangedFiles('parent-branch', 'HEAD^2'), ['pr-only.ts']);
+		assert.deepEqual(getAddedFiles('parent-branch', 'HEAD^2'), ['pr-only.ts']);
+		assert.equal(getMergeBase('HEAD^2'), git(['rev-parse', 'origin/parent-branch'], repoDir));
 	});
 });
 
@@ -572,6 +677,93 @@ describe('getChangedFiles (unrelated histories)', () => {
 
 	it('throws once history is exhausted with no common ancestor', () => {
 		assert.throws(() => getChangedFiles('main'), /unrelated histories/);
+	});
+});
+
+// --- runValidate ---
+
+// --- getIncrementalChanges ---
+
+describe('getIncrementalChanges', () => {
+	const repoDir = mkdtempSync(join(tmpdir(), 'ci-filter-incremental-'));
+	const remoteDir = mkdtempSync(join(tmpdir(), 'ci-filter-remote-incremental-'));
+	const originalCwd = process.cwd();
+	const git = (args: string[]) =>
+		execFileSync('git', args, { cwd: repoDir, stdio: 'pipe' }).toString().trim();
+	const commitFile = (file: string, content: string, message: string) => {
+		writeFileSync(join(repoDir, file), content);
+		git(['add', '.']);
+		git(['commit', '-m', message]);
+		return git(['rev-parse', 'HEAD']);
+	};
+	let green: string;
+	let head: string;
+
+	before(() => {
+		execFileSync('git', ['init', '--bare', '-b', 'main', remoteDir], { stdio: 'pipe' });
+		git(['init', '-b', 'main']);
+		git(['config', 'user.email', 'test@test.local']);
+		git(['config', 'user.name', 'test']);
+		git(['remote', 'add', 'origin', remoteDir]);
+		commitFile('shared.ts', 'shared\n', 'root');
+		git(['push', 'origin', 'main']);
+
+		git(['checkout', '-b', 'pr-branch']);
+		commitFile('src.ts', 'src\n', 'PR source change');
+		green = commitFile('src.test.ts', 'test\n', 'PR test');
+		commitFile('src.test.ts', 'test\nfix\n', 'Fix the test');
+		head = commitFile('new.test.ts', 'new\n', 'Add a test');
+		process.chdir(repoDir);
+		getChangedFiles('main');
+	});
+
+	after(() => {
+		process.chdir(originalCwd);
+		rmSync(repoDir, { recursive: true, force: true });
+		rmSync(remoteDir, { recursive: true, force: true });
+	});
+
+	it('returns only the files changed after the green commit', () => {
+		const result = getIncrementalChanges(green);
+		assert.deepEqual(result.changedFiles?.sort(), ['new.test.ts', 'src.test.ts']);
+		assert.deepEqual(result.addedFiles, ['new.test.ts']);
+	});
+
+	it('returns no files when the head is the green commit', () => {
+		assert.deepEqual(getIncrementalChanges(head).changedFiles, []);
+	});
+
+	it('rejects a value that is not a full SHA', () => {
+		assert.match(getIncrementalChanges('HEAD~1; rm -rf /').reason ?? '', /not a full commit SHA/);
+	});
+
+	it('rejects a commit that is not in the checkout', () => {
+		assert.match(getIncrementalChanges('0'.repeat(40)).reason ?? '', /not in the checkout/);
+	});
+
+	it('rejects a commit that a force push removed', () => {
+		git(['checkout', '-b', 'rewritten', green + '~1']);
+		const orphan = commitFile('other.ts', 'other\n', 'Rewritten history');
+		git(['checkout', 'pr-branch']);
+		assert.match(getIncrementalChanges(orphan).reason ?? '', /not an ancestor/);
+	});
+
+	it('rejects new commits that include a merge', () => {
+		git(['checkout', '-b', 'with-merge', head]);
+		git(['checkout', '-b', 'side', green]);
+		commitFile('side.ts', 'side\n', 'Side change');
+		git(['checkout', 'with-merge']);
+		git(['merge', '--no-ff', '-m', 'Merge side', 'side']);
+		getChangedFiles('main');
+		assert.match(getIncrementalChanges(green).reason ?? '', /include a merge/);
+		git(['checkout', 'pr-branch']);
+	});
+
+	it('rejects a green commit when the merge base changed', () => {
+		// The base branch now holds a PR commit after the green commit.
+		git(['push', '--force', 'origin', `${head}~1:refs/heads/main`]);
+		getChangedFiles('main');
+		assert.match(getIncrementalChanges(green).reason ?? '', /merge base changed/);
 	});
 });
 

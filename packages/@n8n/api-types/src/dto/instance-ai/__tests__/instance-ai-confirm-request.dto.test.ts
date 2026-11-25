@@ -32,8 +32,6 @@ describe('InstanceAiConfirmRequestDto', () => {
 				{ kind: 'approval', approved: true, scope: 'session' },
 			],
 			['approval approve with once scope', { kind: 'approval', approved: true, scope: 'once' }],
-			// InstanceAiConfirmationPanel: handlePlanDeny (hard-reject the plan)
-			['planDeny', { kind: 'planDeny' }],
 			// InstanceAiConfirmationPanel: handleQuestionsSubmit
 			[
 				'questions with mixed answers',
@@ -62,6 +60,14 @@ describe('InstanceAiConfirmRequestDto', () => {
 			[
 				'credentialAutoSetup with attempt id',
 				{ kind: 'credentialAutoSetup', credentialType: 'firecrawlApi', attemptId: 'attempt-1' },
+			],
+			[
+				'credential destination approval',
+				{
+					kind: 'credentialDestination',
+					approved: true,
+					origin: 'https://api.example.com',
+				},
 			],
 			// DomainAccessApproval: handleAction (primary path — with action)
 			[
@@ -111,6 +117,33 @@ describe('InstanceAiConfirmRequestDto', () => {
 			[
 				'setupWorkflowTestTrigger (minimal)',
 				{ kind: 'setupWorkflowTestTrigger', testTriggerNode: 'Webhook' },
+			],
+			['mcpConnect (connected)', { kind: 'mcpConnect', approved: true, connectedSlugs: ['brave'] }],
+			['mcpConnect (skipped)', { kind: 'mcpConnect', approved: false, connectedSlugs: [] }],
+			['mcpConnect (minimal)', { kind: 'mcpConnect', approved: false }],
+			[
+				'appBlueprint with build instructions',
+				{
+					kind: 'appBlueprint',
+					approved: true,
+					blueprint: {
+						name: 'Planner',
+						namespace: 'planner',
+						visibility: 'project',
+						description: 'Plan weekly tasks.',
+						theme: 'both',
+						bindings: [
+							{
+								kind: 'workflow',
+								name: 'Weekly summary',
+								description: 'Creates a summary for the app.',
+								status: 'existing',
+								resourceId: 'workflow-1',
+							},
+						],
+						additionalInstructions: 'Use compact cards.',
+					},
+				},
 			],
 		];
 
@@ -162,6 +195,11 @@ describe('InstanceAiConfirmRequestDto', () => {
 				credentialType: 'slackApi',
 				attemptId: '  ',
 			});
+			expect(result.success).toBe(false);
+		});
+
+		test('mcpConnect without approved', () => {
+			const result = InstanceAiConfirmRequestDto.safeParse({ kind: 'mcpConnect' });
 			expect(result.success).toBe(false);
 		});
 

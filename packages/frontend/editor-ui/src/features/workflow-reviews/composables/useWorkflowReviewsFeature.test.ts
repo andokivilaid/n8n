@@ -1,27 +1,24 @@
 import { createPinia, setActivePinia } from 'pinia';
 
 import { createMockEnterpriseSettings } from '@/__tests__/mocks';
-import { defaultSettings } from '@/__tests__/defaults';
+import { defaultSettings } from '@n8n/frontend-test-utils';
 import { EnterpriseEditionFeature } from '@/app/constants';
+import type { WorkflowReviewRequirementLevel } from '@n8n/api-types';
 import { useSettingsStore } from '@n8n/stores/settings.store';
+import { useWorkflowReviewStatusStore } from '@/features/workflow-reviews/reviewStatus.store';
+import { fetchWorkflowReviewRequests } from '@/features/workflow-reviews/workflowReviews.api';
 import { useWorkflowReviewsFeature } from './useWorkflowReviewsFeature';
 
-const { checkEnvFeatureFlag } = vi.hoisted(() => ({
-	checkEnvFeatureFlag: vi.fn(),
-}));
-
-vi.mock('@/features/shared/envFeatureFlag/useEnvFeatureFlag', () => ({
-	useEnvFeatureFlag: () => ({ check: { value: checkEnvFeatureFlag } }),
+vi.mock('@/features/workflow-reviews/workflowReviews.api', () => ({
+	fetchWorkflowReviewRequests: vi.fn(),
 }));
 
 describe('useWorkflowReviewsFeature', () => {
 	const setGates = ({
 		licensed,
-		environmentEnabled,
 		instanceEnabled,
 	}: {
 		licensed: boolean;
-		environmentEnabled: boolean;
 		instanceEnabled?: boolean;
 	}) => {
 		const settingsStore = useSettingsStore();
@@ -34,32 +31,25 @@ describe('useWorkflowReviewsFeature', () => {
 				? { workflowReviews: undefined }
 				: { workflowReviews: { enabled: instanceEnabled } }),
 		};
-		checkEnvFeatureFlag.mockReturnValue(environmentEnabled);
 	};
 
 	beforeEach(() => {
 		setActivePinia(createPinia());
-		checkEnvFeatureFlag.mockReset();
 	});
 
 	it.each([
-		{ licensed: false, environmentEnabled: false, expected: false },
-		{ licensed: true, environmentEnabled: false, expected: false },
-		{ licensed: false, environmentEnabled: true, expected: false },
-		{ licensed: true, environmentEnabled: true, expected: true },
-	])(
-		'sets availability to $expected when licensed=$licensed and environmentEnabled=$environmentEnabled',
-		({ licensed, environmentEnabled, expected }) => {
-			setGates({ licensed, environmentEnabled, instanceEnabled: false });
+		{ licensed: false, expected: false },
+		{ licensed: true, expected: true },
+	])('sets availability to $expected when licensed=$licensed', ({ licensed, expected }) => {
+		setGates({ licensed, instanceEnabled: false });
 
-			const { isWorkflowReviewsAvailable } = useWorkflowReviewsFeature();
+		const { isWorkflowReviewsAvailable } = useWorkflowReviewsFeature();
 
-			expect(isWorkflowReviewsAvailable.value).toBe(expected);
-		},
-	);
+		expect(isWorkflowReviewsAvailable.value).toBe(expected);
+	});
 
 	it('is enabled when availability and the instance switch are enabled', () => {
-		setGates({ licensed: true, environmentEnabled: true, instanceEnabled: true });
+		setGates({ licensed: true, instanceEnabled: true });
 
 		const { isWorkflowReviewsEnabled } = useWorkflowReviewsFeature();
 
@@ -67,7 +57,7 @@ describe('useWorkflowReviewsFeature', () => {
 	});
 
 	it('reacts to instance policy changes at runtime', () => {
-		setGates({ licensed: true, environmentEnabled: true, instanceEnabled: true });
+		setGates({ licensed: true, instanceEnabled: true });
 		const settingsStore = useSettingsStore();
 		const { isWorkflowReviewsEnabled } = useWorkflowReviewsFeature();
 
@@ -81,11 +71,83 @@ describe('useWorkflowReviewsFeature', () => {
 		expect(isWorkflowReviewsEnabled.value).toBe(false);
 	});
 
+	it.each<{
+		label: string;
+		enabled: boolean;
+		alwaysRequired?: boolean;
+		serverLevel?: WorkflowReviewRequirementLevel | null;
+		homeProject?: { type: 'team' | 'personal' };
+		expected: WorkflowReviewRequirementLevel | null;
+	}>([
+		{
+			label: 'the server level over the instance rule',
+			enabled: true,
+			serverLevel: 'project',
+			homeProject: { type: 'team' },
+			expected: 'project',
+		},
+		{
+			label: 'the instance rule for a team workflow before the first fetch',
+			enabled: true,
+			homeProject: { type: 'team' },
+			expected: 'instance',
+		},
+		{
+			label: 'the instance rule for an unknown home project before the first fetch',
+			enabled: true,
+			expected: 'instance',
+		},
+		{
+			label: 'no level for a personal workflow before the first fetch',
+			enabled: true,
+			homeProject: { type: 'personal' },
+			expected: null,
+		},
+		{
+			label:
+				'no level for a team workflow before the first fetch when approval is required only when configured',
+			enabled: true,
+			alwaysRequired: false,
+			homeProject: { type: 'team' },
+			expected: null,
+		},
+		{
+			label: 'no level when workflow reviews are off',
+			enabled: false,
+			serverLevel: 'project',
+			homeProject: { type: 'team' },
+			expected: null,
+		},
+	])(
+		'reports $label',
+		async ({ enabled, alwaysRequired = true, serverLevel, homeProject, expected }) => {
+			setGates({ licensed: true, instanceEnabled: true });
+			const settingsStore = useSettingsStore();
+			settingsStore.settings = {
+				...settingsStore.settings,
+				workflowReviews: { enabled, alwaysRequired },
+			};
+			if (serverLevel !== undefined) {
+				vi.mocked(fetchWorkflowReviewRequests).mockResolvedValue({
+					count: 0,
+					data: [],
+					reviewRequiredBy: serverLevel,
+				});
+				await useWorkflowReviewStatusStore().fetchStatus('workflow-1');
+			}
+
+			const { reviewRequiredBy, isReviewRequiredFor } = useWorkflowReviewsFeature();
+			const workflow = { id: 'workflow-1', homeProject };
+
+			expect(reviewRequiredBy(workflow)).toBe(expected);
+			expect(isReviewRequiredFor(workflow)).toBe(expected !== null);
+		},
+	);
+
 	it.each([
-		{ licensed: false, environmentEnabled: true, instanceEnabled: true },
-		{ licensed: true, environmentEnabled: false, instanceEnabled: true },
-		{ licensed: true, environmentEnabled: true, instanceEnabled: false },
-		{ licensed: true, environmentEnabled: true, instanceEnabled: undefined },
+		{ licensed: false, instanceEnabled: true },
+		{ licensed: true, instanceEnabled: false },
+		{ licensed: true, instanceEnabled: undefined },
 	])('fails closed when an enabled gate is false or missing', (gates) => {
 		setGates(gates);
 

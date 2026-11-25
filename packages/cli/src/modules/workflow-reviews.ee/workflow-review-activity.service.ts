@@ -1,20 +1,25 @@
 import type {
+	CreateWorkflowReviewCommentDto,
 	ListWorkflowReviewActivityQueryDto,
 	ListWorkflowReviewActivityResponse,
 	WorkflowReviewActivityEntry,
 	WorkflowReviewEligibleReviewer,
 } from '@n8n/api-types';
+import { Logger } from '@n8n/backend-common';
+import { EventService } from '@n8n/backend-services';
 import {
+	TransactionRunner,
 	UserRepository,
+	WorkflowReviewActivityCommentRepository,
 	WorkflowReviewActivityRepository,
 	type User,
 	type WorkflowReviewActivityFeedEntry,
 } from '@n8n/db';
 import { Service } from '@n8n/di';
 
-import { BadRequestError } from '@/errors/response-errors/bad-request.error';
+import { BadRequestError, ForbiddenError } from '@n8n/errors';
 
-import { WorkflowReviewAccessService } from './workflow-review-access.service';
+import { WorkflowReviewAuthorizationService } from './workflow-review-authorization.service';
 import { WorkflowReviewFeatureGate } from './workflow-review-feature-gate.service';
 import { toActivityEntry, toEligibleReviewer } from './workflow-review.mapper';
 
@@ -22,9 +27,13 @@ import { toActivityEntry, toEligibleReviewer } from './workflow-review.mapper';
 export class WorkflowReviewActivityService {
 	constructor(
 		private readonly featureGate: WorkflowReviewFeatureGate,
-		private readonly accessService: WorkflowReviewAccessService,
+		private readonly authorizationService: WorkflowReviewAuthorizationService,
 		private readonly activityRepository: WorkflowReviewActivityRepository,
+		private readonly activityCommentRepository: WorkflowReviewActivityCommentRepository,
 		private readonly userRepository: UserRepository,
+		private readonly txRunner: TransactionRunner,
+		private readonly logger: Logger,
+		private readonly eventService: EventService,
 	) {}
 
 	async listActivity(
@@ -33,7 +42,7 @@ export class WorkflowReviewActivityService {
 		query: ListWorkflowReviewActivityQueryDto,
 	): Promise<ListWorkflowReviewActivityResponse> {
 		await this.featureGate.assertAvailable();
-		await this.accessService.findReadableRequestOrFail(user, workflowReviewRequestId);
+		await this.authorizationService.findReadableRequestOrFail(user, workflowReviewRequestId);
 
 		const { entries, hasMore } = await this.activityRepository.findFeedPage(
 			{
@@ -50,6 +59,56 @@ export class WorkflowReviewActivityService {
 		return { data: await this.hydrate(entries), nextCursor, hasMore };
 	}
 
+	async createComment(
+		user: User,
+		workflowReviewRequestId: string,
+		dto: CreateWorkflowReviewCommentDto,
+	): Promise<WorkflowReviewActivityEntry> {
+		await this.featureGate.assertAvailable();
+
+		const access = await this.authorizationService.findReadableRequestOrFail(
+			user,
+			workflowReviewRequestId,
+		);
+
+		const eligibility = await this.authorizationService.resolveViewerEligibility(user, access);
+		if (!eligibility.canComment) {
+			throw new ForbiddenError('You are not allowed to comment on this review');
+		}
+
+		// Every query inside must go through `ctx`. A stray read here needs a second
+		// pooled connection while the transaction holds one — a deadlock on a
+		// single-connection pool.
+		const { activity, message } = await this.txRunner.run({}, async (ctx) => {
+			const activity = await this.activityRepository.createActivity(
+				{
+					workflowReviewRequestId,
+					type: 'comment.created',
+					data: null,
+					createdById: user.id,
+				},
+				ctx,
+			);
+			const message = await this.activityCommentRepository.createComment(
+				{ activityId: activity.id, createdById: user.id, body: dto.body },
+				ctx,
+			);
+			return { activity, message };
+		});
+
+		this.eventService.emit('workflow-review-comment-created', {
+			user,
+			workflowReviewRequestId,
+		});
+
+		return toActivityEntry(
+			activity,
+			[message],
+			new Map([[user.id, toEligibleReviewer(user)]]),
+			this.logger,
+		);
+	}
+
 	private async hydrate(
 		entries: WorkflowReviewActivityFeedEntry[],
 	): Promise<WorkflowReviewActivityEntry[]> {
@@ -60,7 +119,9 @@ export class WorkflowReviewActivityService {
 			]),
 		);
 
-		return entries.map((entry) => toActivityEntry(entry.activity, entry.messages, usersById));
+		return entries.map((entry) =>
+			toActivityEntry(entry.activity, entry.messages, usersById, this.logger),
+		);
 	}
 
 	private async hydrateAuthors(

@@ -1,4 +1,4 @@
-import type { INodeProperties } from 'n8n-workflow';
+import type { INodeProperties, INodePropertyOptions } from 'n8n-workflow';
 
 const stmtBatchOptions = [
 	{
@@ -397,6 +397,47 @@ export const tableRLC: INodeProperties = {
 	],
 };
 
+// Single source of truth for the WHERE Operator dropdown; the query builder derives
+// its allow-list from this so adding an operator here also permits it at runtime.
+export const operatorOptions: INodePropertyOptions[] = [
+	{
+		name: 'Equal',
+		value: 'equal',
+	},
+	{
+		name: 'Not Equal',
+		value: '!=',
+	},
+	{
+		name: 'Like',
+		value: 'LIKE',
+	},
+	{
+		name: 'Greater Than',
+		value: '>',
+	},
+	{
+		name: 'Less Than',
+		value: '<',
+	},
+	{
+		name: 'Greater Than Or Equal',
+		value: '>=',
+	},
+	{
+		name: 'Less Than Or Equal',
+		value: '<=',
+	},
+	{
+		name: 'Is Null',
+		value: 'IS NULL',
+	},
+	{
+		name: 'Is Not Null',
+		value: 'IS NOT NULL',
+	},
+];
+
 export const whereFixedCollection: INodeProperties = {
 	displayName: 'Select Rows',
 	name: 'where',
@@ -433,45 +474,7 @@ export const whereFixedCollection: INodeProperties = {
 					type: 'options',
 					description:
 						"The operator to check the column against. When using 'LIKE' operator percent sign ( %) matches zero or more characters, underscore ( _ ) matches any single character.",
-					// eslint-disable-next-line n8n-nodes-base/node-param-options-type-unsorted-items
-					options: [
-						{
-							name: 'Equal',
-							value: 'equal',
-						},
-						{
-							name: 'Not Equal',
-							value: '!=',
-						},
-						{
-							name: 'Like',
-							value: 'LIKE',
-						},
-						{
-							name: 'Greater Than',
-							value: '>',
-						},
-						{
-							name: 'Less Than',
-							value: '<',
-						},
-						{
-							name: 'Greater Than Or Equal',
-							value: '>=',
-						},
-						{
-							name: 'Less Than Or Equal',
-							value: '<=',
-						},
-						{
-							name: 'Is Null',
-							value: 'IS NULL',
-						},
-						{
-							name: 'Is Not Null',
-							value: 'IS NOT NULL',
-						},
-					],
+					options: operatorOptions,
 					default: 'equal',
 				},
 				{
@@ -535,6 +538,52 @@ export const sortFixedCollection: INodeProperties = {
 						},
 					],
 					default: 'ASC',
+				},
+			],
+		},
+	],
+};
+
+export const startAfterFixedCollection: INodeProperties = {
+	displayName: 'Start After',
+	name: 'startAfter',
+	type: 'fixedCollection',
+	placeholder: 'Add Start After',
+	default: {},
+	description:
+		'Get the table one page at a time. Each page has the rows after the last value of the page before. Limit sets the page size. To get the biggest values first, sort this column DESC.',
+	displayOptions: {
+		show: {
+			returnAll: [false],
+		},
+	},
+	options: [
+		{
+			displayName: 'Values',
+			name: 'values',
+			values: [
+				{
+					// eslint-disable-next-line n8n-nodes-base/node-param-display-name-wrong-for-dynamic-options
+					displayName: 'Column',
+					name: 'column',
+					type: 'options',
+					// eslint-disable-next-line n8n-nodes-base/node-param-description-wrong-for-dynamic-options
+					description:
+						'A unique column that is never null, for example the primary key. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/" target="_blank">expression</a>.',
+					default: '',
+					typeOptions: {
+						loadOptionsMethod: 'getColumns',
+						loadOptionsDependsOn: ['schema.value', 'table.value'],
+					},
+				},
+				{
+					displayName: 'Value',
+					name: 'value',
+					type: 'string',
+					default: '',
+					description:
+						'The value of the column in the last row of the page before. Leave empty to get the first page.',
+					hint: 'The node runs once for each input item. In a loop, give it only the last row of the page before, for example with a Limit node that keeps the last item, and use {{ $json.ID }}. Oracle returns a column name in upper case unless the column was created with a quoted name.',
 				},
 			],
 		},

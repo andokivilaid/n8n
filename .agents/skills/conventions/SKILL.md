@@ -13,6 +13,10 @@ Use this skill when you need quick reminders on critical patterns.
 
 ## Critical Rules (Must Follow)
 
+**Technical writing (comments, PRs, issues, docs):**
+- Write in ASD-STE100 Simplified Technical English: short sentences, the
+  active voice, one instruction for each sentence
+
 **TypeScript:**
 - Never `any` → use `unknown`
 - Prefer `satisfies` over `as` (except tests)
@@ -20,26 +24,31 @@ Use this skill when you need quick reminders on critical patterns.
 
 **Error Handling:**
 ```typescript
-import { UnexpectedError } from 'n8n-workflow';
+import { UnexpectedError } from '@n8n/errors';
 throw new UnexpectedError('message', { extra: { context } });
 // DON'T use deprecated ApplicationError
 ```
 
 **Frontend:**
 - Vue 3 Composition API (`<script setup lang="ts">`)
+- Pinia setup stores (`defineStore(<id>, () => { ... })`)
 - CSS variables (never hardcode px) - see `/packages/frontend/AGENTS.md`
-- All text via i18n (`$t('key')`)
-- `data-testid` for E2E (single value, no spaces)
+- All text via i18n: `i18n.baseText('<key>')`, with `i18n` from `useI18n()`
+- `data-test-id` for tests (single value, no spaces)
 
 **Backend:**
 - Controller → Service → Repository
 - Dependency injection via `@n8n/di`
 - Config via `@n8n/config`
 - Zod schemas for validation
+- Pagination args: use `offset` + `limit` in controllers and services; translate to TypeORM `skip`/`take` only inside repositories
 
 **Testing:**
 - Vitest (unit), Playwright (E2E)
 - Mock external dependencies
+- Keep filesystem tests in a test-owned temporary directory
+- Set `N8N_USER_FOLDER` before importing settings code
+- Trace branches activated by mocks and isolate every reachable mutation
 - Work from package directory: `pushd packages/cli && pnpm test`
 
 **Database:**
@@ -53,9 +62,9 @@ throw new UnexpectedError('message', { extra: { context } });
 **Commands:**
 ```bash
 pnpm build > build.log 2>&1  # Always redirect
-pnpm typecheck               # Before commit
-pnpm lint                    # Before commit
 ```
+Before you commit, follow "Verify changes" in `/AGENTS.md`. Do not run full
+lint or typecheck as routine checks. CI runs them.
 > Secrets: pnpm command lines may be recorded verbatim (opt-in dev metrics) —
 > pass sensitive values via env vars, never inline on the command line.
 
@@ -64,7 +73,8 @@ pnpm lint                    # Before commit
 | Package | Purpose |
 |---------|---------|
 | `packages/cli` | Backend API |
-| `packages/frontend/editor-ui` | Vue 3 frontend |
+| `packages/frontend/editor-ui` | Vue 3 frontend shell |
+| `packages/modules/<name>/frontend` | Frontend feature modules. Guide: `packages/@n8n/module-cli/frontend-module-guide.md` |
 | `packages/@n8n/api-types` | Shared types |
 | `packages/@n8n/db` | TypeORM entities |
 | `packages/workflow` | Core interfaces |

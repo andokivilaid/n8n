@@ -13,7 +13,11 @@ import {
 } from './helpers';
 import type { McpServerConfig } from '@n8n/config';
 import { Container } from '@n8n/di';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { z } from 'zod';
 
+import { createCallTool } from '../../McpClientTool/utils';
 import { QueuedExecutionStrategy } from '../execution/QueuedExecutionStrategy';
 import { McpServer } from '../McpServer';
 import { InMemorySessionStore } from '../session/InMemorySessionStore';
@@ -34,6 +38,83 @@ describe('McpServer', () => {
 		setEvictionConfig(60 * 60 * 1000, 5 * 60 * 1000);
 		mockLogger = createMockLogger();
 		mcpServer = McpServer.instance(mockLogger);
+	});
+
+	describe('tools/list schema dialect', () => {
+		const sessionId = 'dialect-session';
+
+		const toolWithTuple = () =>
+			createMockTool('with_tuple', {
+				schema: z.object({ range: z.tuple([z.number(), z.number()]).rest(z.number()) }),
+			});
+
+		type ListToolsHandler = (
+			request: unknown,
+			extra: { sessionId?: string },
+		) => { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> };
+
+		async function advertisedTools() {
+			const server = createMockServer();
+			const internals = mcpServer as unknown as {
+				sessionManager: SessionManager;
+				setupHandlers(server: unknown): void;
+			};
+
+			await internals.sessionManager.registerSession(
+				sessionId,
+				server,
+				createMockTransport(sessionId, 'streamableHttp'),
+				[toolWithTuple()],
+			);
+			internals.setupHandlers(server);
+
+			const listTools = server.setRequestHandler.mock.calls[0][1] as unknown as ListToolsHandler;
+			return listTools({}, { sessionId }).tools;
+		}
+
+		it('declares JSON Schema 2020-12', async () => {
+			const [tool] = await advertisedTools();
+
+			expect(tool.inputSchema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
+		});
+
+		it('advertises tuples with the 2020-12 keywords', async () => {
+			const [tool] = await advertisedTools();
+
+			expect(tool.inputSchema.properties).toMatchObject({
+				range: {
+					type: 'array',
+					prefixItems: [{ type: 'number' }, { type: 'number' }],
+					items: { type: 'number' },
+				},
+			});
+			expect(JSON.stringify(tool.inputSchema)).not.toContain('additionalItems');
+		});
+
+		it('keeps plain objects open to extra keys', async () => {
+			const [tool] = await advertisedTools();
+
+			expect(tool.inputSchema.additionalProperties).toBe(true);
+		});
+
+		it('relays the same dialect over SSE', async () => {
+			const server = createMockServer();
+			const transport = createMockTransport(sessionId, 'sse');
+			const internals = mcpServer as unknown as { sessionManager: SessionManager };
+
+			await internals.sessionManager.registerSession(sessionId, server, transport, [
+				toolWithTuple(),
+			]);
+			mcpServer.handleWorkerResponse(sessionId, 'msg-1', { _listToolsRequest: true });
+
+			const [message] = transport.send.mock.calls[0] as unknown as [
+				{ result: { tools: Array<{ inputSchema: Record<string, unknown> }> } },
+			];
+			expect(message.result.tools[0].inputSchema).toMatchObject({
+				$schema: 'https://json-schema.org/draft/2020-12/schema',
+				properties: { range: { prefixItems: [{ type: 'number' }, { type: 'number' }] } },
+			});
+		});
 	});
 
 	afterEach(() => {
@@ -250,6 +331,21 @@ describe('McpServer', () => {
 			expect(handlerResult?.content[0].text).toContain('boom');
 		});
 
+		it('should set isError when a proxied MCP Client tool returns an error result', async () => {
+			const content = [{ type: 'text', text: '{"error":"invalid_request","status":400}' }];
+			const client = {
+				callTool: vi.fn().mockResolvedValue({ isError: true, content }),
+			} as unknown as Client;
+			const callTool = createCallTool('fail_tool', client, 1000, vi.fn());
+			const tool = createMockTool('fail_tool', { metadata: { isFromToolkit: true } });
+			tool.invoke.mockImplementation(async (args) => JSON.stringify(await callTool(args)));
+			const { getHandlerResult } = await setupSseSession(tool);
+
+			await postToolCall(tool);
+
+			expect(await getHandlerResult()).toEqual({ isError: true, content });
+		});
+
 		it('should resolve an SSE tool call when the transport fails to handle the request', async () => {
 			const tool = createMockTool('get_weather');
 			const { transport } = await setupSseSession(tool);
@@ -298,6 +394,60 @@ describe('McpServer', () => {
 
 			expect(response.status).toHaveBeenCalledWith(404);
 			expect(response.send).toHaveBeenCalledWith('Session not found');
+		});
+	});
+
+	describe('createServer', () => {
+		type ServerFactory = {
+			createServer(serverName: string, instructions?: string): Server;
+		};
+
+		// Drives a real SDK Server through a stub transport and returns the
+		// InitializeResult the client would receive.
+		const initialize = async (server: Server) => {
+			const sent: Array<{ result?: { instructions?: string; serverInfo?: { name: string } } }> = [];
+			const transport = {
+				start: vi.fn().mockResolvedValue(undefined),
+				send: vi.fn().mockImplementation(async (message: (typeof sent)[number]) => {
+					sent.push(message);
+				}),
+				close: vi.fn().mockResolvedValue(undefined),
+				onmessage: undefined as ((message: unknown) => void) | undefined,
+			};
+			await server.connect(transport as never);
+			transport.onmessage?.({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'initialize',
+				params: {
+					protocolVersion: '2025-03-26',
+					capabilities: {},
+					clientInfo: { name: 'test-client', version: '1.0' },
+				},
+			});
+			await vi.waitFor(() => expect(sent).toHaveLength(1));
+			return sent[0].result;
+		};
+
+		it('should include instructions in the initialize result when provided', async () => {
+			const server = (mcpServer as unknown as ServerFactory).createServer(
+				'test-server',
+				'Call the context tool first.',
+			);
+
+			const result = await initialize(server);
+
+			expect(result?.serverInfo?.name).toBe('test-server');
+			expect(result?.instructions).toBe('Call the context tool first.');
+		});
+
+		it('should omit instructions from the initialize result when not provided', async () => {
+			const server = (mcpServer as unknown as ServerFactory).createServer('test-server');
+
+			const result = await initialize(server);
+
+			expect(result?.serverInfo?.name).toBe('test-server');
+			expect(result?.instructions).toBeUndefined();
 		});
 	});
 
@@ -666,6 +816,34 @@ describe('McpServer', () => {
 
 			// Should have attempted to send tools list via transport
 			expect(transport.send).toHaveBeenCalled();
+		});
+
+		it('should set isError on a proxied MCP Client tool error sent via SSE transport', async () => {
+			const sessionId = 'test-session';
+			const transport = createMockTransport(sessionId, 'sse');
+			const content = [{ type: 'text', text: 'Weather unknown at location' }];
+
+			await (
+				mcpServer as unknown as {
+					sessionManager: { registerSession: (...a: unknown[]) => Promise<void> };
+				}
+			).sessionManager.registerSession(sessionId, createMockServer(), transport, [
+				createMockTool('fail_tool', { metadata: { isFromToolkit: true } }),
+			]);
+			mcpServer.setExecutionStrategy(
+				new QueuedExecutionStrategy(mcpServer.getPendingCallsManager()),
+			);
+
+			mcpServer.handleWorkerResponse(
+				sessionId,
+				'msg-1',
+				JSON.stringify({ isError: true, content }),
+				'fail_tool',
+			);
+
+			expect(transport.send).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 'msg-1', result: { isError: true, content } }),
+			);
 		});
 	});
 

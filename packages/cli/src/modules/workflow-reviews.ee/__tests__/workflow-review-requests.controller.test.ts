@@ -14,9 +14,9 @@ const serviceGatedHandlers = new Set([
 	'create',
 	'updateVersion',
 	'decide',
-	'listInbox',
-	'getSummary',
+	'close',
 	'listActivity',
+	'createComment',
 	'getDetail',
 ]);
 

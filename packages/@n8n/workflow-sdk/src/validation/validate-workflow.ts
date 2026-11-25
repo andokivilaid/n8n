@@ -1,21 +1,23 @@
 import { isRecord } from '@n8n/utils/is-record';
 import get from 'lodash/get';
-import type {
-	INodeType,
-	INodeTypes,
-	IConnections as N8nIConnections,
-	IDisplayOptions,
-} from 'n8n-workflow';
+import type { INodeType, INodeTypes, IDisplayOptions, WorkflowEngineType } from 'n8n-workflow';
 import { mapConnectionsByDestination, NodeVersionNotFoundError } from 'n8n-workflow';
 
 import { matchesDisplayOptions } from './display-options';
 import type { DisplayOptions, DisplayOptionsContext } from './display-options';
+import {
+	findEngineV2SupportIssues,
+	resolveValidationEngine,
+	type EngineV2ValidationCode,
+} from './engine-v2-support';
 import { validateNodeConfig } from './node-parameter-schema/schema-validator';
 import { resolveMainInputCount } from './node-port-resolvers/resolve-main-input-count';
 import { resolveMainOutputCount } from './node-port-resolvers/resolve-main-output-count';
 import { isStickyNoteType, isHttpRequestType } from '../constants/node-types';
+import { nodeDeprecationMessage } from '../node-deprecation';
 import type { WorkflowBuilder, WorkflowJSON } from '../types/base';
 import { isTriggerNodeType } from '../utils/trigger-detection';
+import { toEngineConnections } from '../utils/workflow-json-engine-helpers';
 import { containsPlaceholderMarker } from '../workflow-builder/string-utils';
 
 /**
@@ -23,6 +25,7 @@ import { containsPlaceholderMarker } from '../workflow-builder/string-utils';
  */
 export type ValidationErrorCode =
 	| 'NO_NODES'
+	| 'DUPLICATE_NODE_ID'
 	| 'MISSING_TRIGGER'
 	| 'DISCONNECTED_NODE'
 	| 'MISSING_PARAMETER'
@@ -37,11 +40,13 @@ export type ValidationErrorCode =
 	| 'TOOL_NO_PARAMETERS'
 	| 'FROM_AI_IN_NON_TOOL'
 	| 'MISSING_EXPRESSION_PREFIX'
+	| 'UNSUPPORTED_EXPRESSION'
 	| 'INVALID_PARAMETER'
 	| 'INVALID_INPUT_INDEX'
 	| 'INVALID_OUTPUT_INDEX'
 	| 'SUBNODE_NOT_CONNECTED'
 	| 'DUPLICATE_SUBNODE_CONNECTION'
+	| 'MISSING_FALLBACK_MODEL_FLAG'
 	| 'SUBNODE_PARAMETER_MISMATCH'
 	| 'UNSUPPORTED_SUBNODE_INPUT'
 	| 'MISSING_REQUIRED_INPUT'
@@ -53,7 +58,10 @@ export type ValidationErrorCode =
 	| 'PARTIAL_EXPRESSION_PATH'
 	| 'INVALID_DATE_METHOD'
 	| 'UNKNOWN_CONFIG_KEY'
-	| 'UNKNOWN_NODE_VERSION';
+	| 'UNKNOWN_NODE_VERSION'
+	| 'DEPRECATED_NODE_TYPE'
+	| 'MOCK_OUTPUT_JSON_ENVELOPE'
+	| EngineV2ValidationCode;
 
 /**
  * Validation error class
@@ -163,6 +171,12 @@ export interface ValidationOptions {
 	validateSchema?: boolean;
 	/** Optional node types provider for dynamic input index validation */
 	nodeTypesProvider?: INodeTypes;
+	/**
+	 * The engine that runs a workflow without `settings.engineType`. The workflow's own
+	 * `engineType` always wins. On `v2`, each node or setting that engine v2 cannot run
+	 * is an error. Default: `v1`.
+	 */
+	engine?: WorkflowEngineType;
 }
 
 /**
@@ -283,6 +297,11 @@ function reconstructSubnodesFromConnections(
  * Single-value AI inputs (model, memory, embedding, …) accept exactly one connection
  * at runtime. Subnode reconstruction keeps only the last source, so surface duplicates
  * here instead of letting an earlier malformed subnode escape validation.
+ *
+ * Scoped per input INDEX, not per connection type: a node can declare several slots
+ * of one type that each take a single connection. An Agent with `needsFallback` on
+ * has two `ai_languageModel` slots — primary at 0, fallback at 1 — and keying only
+ * on the type rejected that legitimate pair, which blocked the save outright.
  */
 function checkDuplicateSingleValueAiConnections(
 	json: WorkflowJSON,
@@ -300,7 +319,7 @@ function checkDuplicateSingleValueAiConnections(
 			for (const outputs of aiConns) {
 				if (!outputs) continue;
 				for (const conn of outputs) {
-					const key = `${conn.node}:${connType}`;
+					const key = `${conn.node}:${connType}:${conn.index ?? 0}`;
 					const firstSource = firstSourceByInput.get(key);
 					if (firstSource === undefined) {
 						firstSourceByInput.set(key, sourceNodeName);
@@ -318,6 +337,64 @@ function checkDuplicateSingleValueAiConnections(
 				}
 			}
 		}
+	}
+}
+
+/**
+ * Node types whose description declares a `needsFallback` toggle gating a second
+ * `ai_languageModel` input (the "Fallback Model" slot). Other multi-model nodes —
+ * Model Selector, for one — take many models with no such toggle.
+ */
+const FALLBACK_MODEL_NODE_TYPES = new Set([
+	'@n8n/n8n-nodes-langchain.agent',
+	'@n8n/n8n-nodes-langchain.agentTool',
+	'@n8n/n8n-nodes-langchain.chainLlm',
+	'@n8n/n8n-nodes-langchain.microsoftAgent365Trigger',
+]);
+
+/**
+ * A model wired to the second `ai_languageModel` slot only takes effect when
+ * `needsFallback` is on — the node hides that input otherwise (see `getInputs` in
+ * the Agent node), leaving the connection pointing at an input the node does not
+ * declare. The workflow then advertises a backup model and has none.
+ *
+ * Reported rather than silently corrected: flipping the flag would start issuing
+ * real (billable) calls to a model the workflow never used.
+ *
+ * Informational, so it never blocks a save. Real workflows already carry this
+ * shape — a user can wire a fallback and switch the toggle back off, and n8n keeps
+ * the orphaned connection — and those users must still be able to save unrelated
+ * edits. It guides the author; it does not gate them.
+ */
+function checkFallbackModelFlag(json: WorkflowJSON, warnings: ValidationWarning[]): void {
+	const nodesWithFallbackModel = new Set<string>();
+
+	for (const nodeConnections of Object.values(json.connections)) {
+		for (const outputs of nodeConnections.ai_languageModel ?? []) {
+			for (const conn of outputs ?? []) {
+				if ((conn.index ?? 0) >= 1) nodesWithFallbackModel.add(conn.node);
+			}
+		}
+	}
+
+	if (nodesWithFallbackModel.size === 0) return;
+
+	for (const node of json.nodes) {
+		if (!node.name || !nodesWithFallbackModel.has(node.name)) continue;
+		if (!FALLBACK_MODEL_NODE_TYPES.has(node.type)) continue;
+		if (node.parameters?.needsFallback === true) continue;
+
+		warnings.push(
+			new ValidationWarning(
+				'MISSING_FALLBACK_MODEL_FLAG',
+				`'${node.name}' has a model wired to its Fallback Model input, but 'needsFallback' is not enabled, so the node does not declare that input and the fallback never runs. Set parameters.needsFallback: true, or remove the second model.`,
+				node.name,
+				undefined,
+				undefined,
+				'major',
+				'informational',
+			),
+		);
 	}
 }
 
@@ -465,6 +542,50 @@ function collectUnknownVersionWarnings(
 }
 
 /**
+ * Emits a `DEPRECATED_NODE_TYPE` warning for each node whose type is hidden in
+ * the node panel. A retired node still builds and still runs, so this stays
+ * informational: it never blocks a save or the CLI exit code. It only makes the
+ * retirement visible, because a synthesized type definition reads like any
+ * other one.
+ *
+ * The warning stands alone, so it carries the node's own `searchHint` when the
+ * node names a replacement. Most retired nodes name none, and those fall back
+ * to generic advice.
+ */
+function collectDeprecatedNodeWarnings(
+	json: WorkflowJSON,
+	provider: INodeTypes,
+	warnings: ValidationWarning[],
+): void {
+	for (const node of json.nodes) {
+		let description: INodeType['description'] | undefined;
+		try {
+			description = provider.getByNameAndVersion(
+				node.type,
+				resolveTypeVersion(node.typeVersion),
+			)?.description;
+		} catch {
+			// An unresolvable node type is reported by the checks that own it.
+			continue;
+		}
+		if (description?.hidden !== true) continue;
+
+		const advice = nodeDeprecationMessage(description.builderHint?.searchHint);
+
+		warnings.push(
+			ValidationWarning.informational(
+				'DEPRECATED_NODE_TYPE',
+				`Node '${node.name}' uses the retired node type '${node.type}'. ${advice}`,
+				node.name,
+				undefined,
+				undefined,
+				'major',
+			),
+		);
+	}
+}
+
+/**
  * Validate a workflow
  *
  * Checks for:
@@ -506,6 +627,9 @@ export function validateWorkflow(
 		: undefined;
 	if (options.nodeTypesProvider) {
 		collectUnknownVersionWarnings(json, options.nodeTypesProvider, warnings);
+	}
+	if (nodeTypesProvider) {
+		collectDeprecatedNodeWarnings(json, nodeTypesProvider, warnings);
 	}
 
 	// Check for trigger node
@@ -610,6 +734,20 @@ export function validateWorkflow(
 						}
 					}
 
+					// An omitted discriminator falls back to the node default at runtime
+					// (the editor strips defaults on save), so a round-tripped workflow
+					// must not fail the build on it — surface it as informational.
+					if (error.missingDiscriminator) {
+						warnings.push(
+							ValidationWarning.informational(
+								'INVALID_PARAMETER',
+								`Node "${node.name}": ${message}`,
+								node.name,
+							),
+						);
+						continue;
+					}
+
 					// Report as WARNING (non-blocking) to maintain backwards compatibility
 					warnings.push(
 						new ValidationWarning(
@@ -650,6 +788,14 @@ export function validateWorkflow(
 
 	// Duplicate connections to single-value AI inputs
 	checkDuplicateSingleValueAiConnections(json, warnings);
+	checkFallbackModelFlag(json, warnings);
+
+	// A passing test run does not prove that engine v2 can run the workflow, so check it here.
+	if (resolveValidationEngine(json, options.engine) === 'v2') {
+		for (const issue of findEngineV2SupportIssues(json)) {
+			errors.push(new ValidationError(issue.code, issue.message, issue.nodeName));
+		}
+	}
 
 	return {
 		valid: errors.length === 0,
@@ -669,9 +815,7 @@ export function validateWorkflow(
  * drops the third branch at runtime.
  */
 function checkMergeNodeInputCount(json: WorkflowJSON, warnings: ValidationWarning[]): void {
-	const connectionsByDest = mapConnectionsByDestination(
-		json.connections as unknown as N8nIConnections,
-	);
+	const connectionsByDest = mapConnectionsByDestination(toEngineConnections(json.connections));
 
 	for (const node of json.nodes) {
 		if (!node.name) continue;
@@ -742,7 +886,7 @@ function checkDisplayOptionsMatch(
 		if (!expectedValues.includes(actualValue as never)) {
 			mismatches.push({
 				param: paramName,
-				expected: expectedValues as unknown[],
+				expected: expectedValues,
 				actual: actualValue,
 			});
 		}
@@ -772,10 +916,8 @@ function validateSubnodeParameters(
 	}
 
 	// Invert connections to find incoming connections by destination
-	// Cast to n8n-workflow IConnections since our local type has string for connection type
-	const connectionsByDest = mapConnectionsByDestination(
-		json.connections as unknown as N8nIConnections,
-	);
+	// Convert to n8n-workflow IConnections since our local type has string for connection type
+	const connectionsByDest = mapConnectionsByDestination(toEngineConnections(json.connections));
 
 	// Check each node that might be a parent with AI inputs
 	for (const parentNode of json.nodes) {
@@ -913,9 +1055,7 @@ function validateParentSupportsInputs(
 		}
 	}
 
-	const connectionsByDest = mapConnectionsByDestination(
-		json.connections as unknown as N8nIConnections,
-	);
+	const connectionsByDest = mapConnectionsByDestination(toEngineConnections(json.connections));
 
 	for (const parentNode of json.nodes) {
 		if (!parentNode.name) continue;
@@ -930,9 +1070,9 @@ function validateParentSupportsInputs(
 		if (!builderHintInputs) continue;
 
 		const parentContext: DisplayOptionsContext = {
-			parameters: (parentNode.parameters ?? {}) as Record<string, unknown>,
+			parameters: parentNode.parameters ?? {},
 			nodeVersion: version,
-			rootParameters: (parentNode.parameters ?? {}) as Record<string, unknown>,
+			rootParameters: parentNode.parameters ?? {},
 		};
 
 		for (const [connectionType, inputConfig] of Object.entries(builderHintInputs)) {
@@ -956,7 +1096,7 @@ function validateParentSupportsInputs(
 					const subnodeField = AI_CONNECTION_TO_SUBNODE_FIELD[connectionType] || connectionType;
 					const conditionDetails = buildConditionSummary(
 						inputConfig.displayOptions,
-						(parentNode.parameters ?? {}) as Record<string, unknown>,
+						parentNode.parameters ?? {},
 					);
 
 					warnings.push(
@@ -991,9 +1131,7 @@ function validateRequiredInputsConnected(
 	nodeTypesProvider: INodeTypes,
 	errors: ValidationError[],
 ): void {
-	const connectionsByDest = mapConnectionsByDestination(
-		json.connections as unknown as N8nIConnections,
-	);
+	const connectionsByDest = mapConnectionsByDestination(toEngineConnections(json.connections));
 
 	for (const parentNode of json.nodes) {
 		if (!parentNode.name) continue;
@@ -1008,9 +1146,9 @@ function validateRequiredInputsConnected(
 		if (!builderHintInputs) continue;
 
 		const parentContext: DisplayOptionsContext = {
-			parameters: (parentNode.parameters ?? {}) as Record<string, unknown>,
+			parameters: parentNode.parameters ?? {},
 			nodeVersion: version,
-			rootParameters: (parentNode.parameters ?? {}) as Record<string, unknown>,
+			rootParameters: parentNode.parameters ?? {},
 		};
 
 		for (const [connectionType, inputConfig] of Object.entries(builderHintInputs)) {
@@ -1034,7 +1172,7 @@ function validateRequiredInputsConnected(
 			const triggerDetails = inputConfig.displayOptions
 				? ` (triggered by ${buildTriggeringConditionSummary(
 						inputConfig.displayOptions,
-						(parentNode.parameters ?? {}) as Record<string, unknown>,
+						parentNode.parameters ?? {},
 					)})`
 				: '';
 			const alternative = inputConfig.displayOptions
@@ -1119,9 +1257,9 @@ function validateOutputUsage(
 		if (!outputsHint) continue;
 
 		const ctx: DisplayOptionsContext = {
-			parameters: (sourceNode.parameters ?? {}) as Record<string, unknown>,
+			parameters: sourceNode.parameters ?? {},
 			nodeVersion: version,
-			rootParameters: (sourceNode.parameters ?? {}) as Record<string, unknown>,
+			rootParameters: sourceNode.parameters ?? {},
 		};
 
 		for (const [connectionType, cfg] of Object.entries(outputsHint)) {
@@ -1138,7 +1276,7 @@ function validateOutputUsage(
 
 			const conditionDetails = buildConditionSummary(
 				cfg.displayOptions,
-				(sourceNode.parameters ?? {}) as Record<string, unknown>,
+				sourceNode.parameters ?? {},
 			);
 			const usedWiring = describeOutputWiring(connectionType);
 			const enabledAlt = findEnabledAlternativeOutput(outputsHint, ctx, connectionType);
@@ -1206,6 +1344,8 @@ function validateSwitchHasOutgoingConnections(
 ): void {
 	for (const sourceNode of json.nodes) {
 		if (!sourceNode.name || sourceNode.type !== 'n8n-nodes-base.switch') continue;
+		// Disabled nodes pass data through without evaluating Switch routing rules.
+		if (sourceNode.disabled === true) continue;
 		if (hasAnyMainOutputConnection(json.connections[sourceNode.name])) continue;
 
 		warnings.push(

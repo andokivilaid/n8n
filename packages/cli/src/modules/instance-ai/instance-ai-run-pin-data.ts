@@ -1,4 +1,5 @@
 import { Container } from '@n8n/di';
+import { resolveSampleFileMarkers } from '@n8n/instance-ai';
 import {
 	CHAT_TRIGGER_NODE_TYPE,
 	FORM_TRIGGER_NODE_TYPE,
@@ -11,6 +12,7 @@ import {
 	type WorkflowExecutionMockDataSource,
 } from 'n8n-workflow';
 
+import { isExecutionIdV2 } from '@/executions/execution-id';
 import { ExecutionPersistence } from '@/executions/execution-persistence';
 
 import { createTriggerExecutionData } from './trigger-run-data';
@@ -85,15 +87,21 @@ export function buildInstanceAiRunPinDataPlan(args: {
 
 /**
  * Convert SDK pinData (Record<string, IDataObject[]>) to runtime format (IPinData).
- * SDK stores plain objects; runtime wraps each item in { json: item }.
+ * SDK stores plain objects; runtime wraps each item in { json: item }. Sample-file
+ * markers become real file data, so a fixture never carries hand-written bytes.
+ *
+ * Built with `Object.fromEntries` so every node name keeps its own entry:
+ * node names are free-form, and a few of them do not survive being assigned
+ * as a plain object key, which would silently unpin that node for the run.
  */
 export function sdkPinDataToRuntime(pinData: Record<string, unknown[]> | undefined): IPinData {
-	const result: IPinData = {};
-	if (!pinData) return result;
-	for (const [nodeName, items] of Object.entries(pinData)) {
-		result[nodeName] = items.map((item) => ({ json: (item ?? {}) as IDataObject }));
-	}
-	return result;
+	if (!pinData) return {};
+	return Object.fromEntries(
+		Object.entries(pinData).map(([nodeName, items]) => [
+			nodeName,
+			items.map((item) => resolveSampleFileMarkers(item)),
+		]),
+	);
 }
 
 export async function pruneUnreachedVerificationPinData(args: {
@@ -105,6 +113,10 @@ export async function pruneUnreachedVerificationPinData(args: {
 	const { executionId, verificationPinData, nonVerificationPinData, executedNodeNames } = args;
 	const verificationNodeNames = Object.keys(verificationPinData);
 	if (verificationNodeNames.length === 0) return;
+	// An engine v2 run is stored only on the data plane, and the data plane has
+	// no API to update a stored run. So a v2 run keeps the verification pin data
+	// of the nodes it did not reach.
+	if (isExecutionIdV2(executionId)) return;
 
 	const executionPersistence = Container.get(ExecutionPersistence);
 	const execution = await executionPersistence.findSingleExecution(executionId, {
@@ -147,12 +159,23 @@ export function getPrunedVerificationPinData(args: {
 	let nextPinData: IPinData | undefined;
 
 	for (const nodeName of Object.keys(args.verificationPinData)) {
-		if (reachedNodeNames.has(nodeName) || args.persistedPinData[nodeName] === undefined) continue;
+		// Every lookup here is guarded: a node name can match a property that
+		// plain objects already carry, and a bare read would return that value
+		// instead of missing.
+		if (reachedNodeNames.has(nodeName) || !Object.hasOwn(args.persistedPinData, nodeName)) continue;
 
 		nextPinData ??= { ...args.persistedPinData };
-		const preservedPinData = args.nonVerificationPinData[nodeName];
+		const preservedPinData = Object.hasOwn(args.nonVerificationPinData, nodeName)
+			? args.nonVerificationPinData[nodeName]
+			: undefined;
 		if (preservedPinData) {
-			nextPinData[nodeName] = preservedPinData;
+			// defineProperty, so the entry always lands under the node's own name
+			Object.defineProperty(nextPinData, nodeName, {
+				value: preservedPinData,
+				enumerable: true,
+				writable: true,
+				configurable: true,
+			});
 		} else {
 			delete nextPinData[nodeName];
 		}
@@ -168,7 +191,7 @@ function validateInputDataShape(node: INode, inputData: Record<string, unknown>)
 	const looksWrapped = typeof formFieldsValue === 'object' && formFieldsValue !== null;
 	if (looksWrapped) {
 		throw new Error(
-			'verify-built-workflow: inputData for a Form Trigger must be a flat field map ' +
+			'workflow_builder_verify_built_workflow: inputData for a Form Trigger must be a flat field map ' +
 				'(e.g. {name: "Alice", email: "a@b.c"}), NOT wrapped in `formFields`. ' +
 				'The production Form Trigger emits fields directly on $json, so downstream ' +
 				'expressions like $json.name are correct. Re-run with the flat shape.',

@@ -18,10 +18,12 @@ const review = (
 	state: 'open',
 	decision: 'pending',
 	workflowVersionId: 'ver-1',
+	workflowVersionName: null,
+	description: null,
 	createdAt: '2026-07-20T10:00:00.000Z',
 	updatedAt: '2026-07-20T10:00:00.000Z',
 	decisionBy: null,
-	approvedVersionPublicationState: null,
+	viewerCanOpen: false,
 	...overrides,
 });
 
@@ -30,6 +32,7 @@ const openReview = review();
 const listOf = (...data: WorkflowReviewRequestForWorkflow[]): WorkflowReviewRequestList => ({
 	count: data.length,
 	data,
+	reviewRequiredBy: null,
 });
 
 describe('reviewStatus.store', () => {
@@ -82,11 +85,7 @@ describe('reviewStatus.store', () => {
 
 	it('does not treat a latest approved review as open, but keeps it as the latest', async () => {
 		const store = useWorkflowReviewStatusStore();
-		const approved = review({
-			state: 'closed',
-			decision: 'approved',
-			approvedVersionPublicationState: 'not_published',
-		});
+		const approved = review({ state: 'closed', decision: 'approved' });
 		fetchMock.mockResolvedValue(listOf(approved));
 
 		await store.fetchStatus('workflow-1');
@@ -122,9 +121,44 @@ describe('reviewStatus.store', () => {
 			review({
 				id: 'req-9',
 				workflowVersionId: 'ver-9',
+				// The caller just opened this review, so they may open it too
+				viewerCanOpen: true,
 			}),
 		);
 		expect(store.hasOpenReview('workflow-1')).toBe(true);
+	});
+
+	it('keeps the description and the version name the caller submitted with a freshly created review', () => {
+		const store = useWorkflowReviewStatusStore();
+
+		store.setOpenReview(
+			'workflow-1',
+			{
+				id: 'req-9',
+				state: 'open',
+				decision: 'pending',
+				workflowVersionId: 'ver-9',
+				createdAt: '2026-07-20T10:00:00.000Z',
+				updatedAt: '2026-07-20T10:00:00.000Z',
+			},
+			'Please review the retry logic',
+			'Release candidate',
+		);
+
+		expect(store.latestReviewRequest('workflow-1')?.description).toBe(
+			'Please review the retry logic',
+		);
+		expect(store.latestReviewRequest('workflow-1')?.workflowVersionName).toBe('Release candidate');
+	});
+
+	it('stores the level that requires a review', async () => {
+		const store = useWorkflowReviewStatusStore();
+		expect(store.reviewRequiredBy('workflow-1')).toBeUndefined();
+		fetchMock.mockResolvedValue({ ...listOf(), reviewRequiredBy: 'project' });
+
+		await store.fetchStatus('workflow-1');
+
+		expect(store.reviewRequiredBy('workflow-1')).toBe('project');
 	});
 
 	it('stores null when the API returns no review', async () => {
@@ -148,15 +182,16 @@ describe('reviewStatus.store', () => {
 		);
 		const firstFetch = store.fetchStatus('workflow-1');
 
-		fetchMock.mockResolvedValueOnce(listOf(openReview));
+		fetchMock.mockResolvedValueOnce({ ...listOf(openReview), reviewRequiredBy: 'project' });
 		await store.fetchStatus('workflow-1');
 		expect(store.hasOpenReview('workflow-1')).toBe(true);
 
 		// The stale first response resolves last and must be dropped.
-		resolveFirst(listOf());
+		resolveFirst({ ...listOf(), reviewRequiredBy: 'instance' });
 		await firstFetch;
 
 		expect(store.hasOpenReview('workflow-1')).toBe(true);
+		expect(store.reviewRequiredBy('workflow-1')).toBe('project');
 	});
 
 	it('discards an older successful response even when a newer request failed transiently', async () => {
@@ -207,7 +242,7 @@ describe('reviewStatus.store', () => {
 
 	it.each([404, 403])('clears the stored status on %i', async (httpStatusCode) => {
 		const store = useWorkflowReviewStatusStore();
-		fetchMock.mockResolvedValueOnce(listOf(openReview));
+		fetchMock.mockResolvedValueOnce({ ...listOf(openReview), reviewRequiredBy: 'project' });
 		await store.fetchStatus('workflow-1');
 		expect(store.hasOpenReview('workflow-1')).toBe(true);
 
@@ -216,17 +251,19 @@ describe('reviewStatus.store', () => {
 
 		expect(store.hasOpenReview('workflow-1')).toBe(false);
 		expect(store.latestReviewByWorkflowId).not.toHaveProperty('workflow-1');
+		expect(store.reviewRequiredBy('workflow-1')).toBeUndefined();
 	});
 
 	it('keeps the last known status on a transient error', async () => {
 		const store = useWorkflowReviewStatusStore();
-		fetchMock.mockResolvedValueOnce(listOf(openReview));
+		fetchMock.mockResolvedValueOnce({ ...listOf(openReview), reviewRequiredBy: 'project' });
 		await store.fetchStatus('workflow-1');
 
 		fetchMock.mockRejectedValueOnce(new Error('network down'));
 		await store.fetchStatus('workflow-1');
 
 		expect(store.hasOpenReview('workflow-1')).toBe(true);
+		expect(store.reviewRequiredBy('workflow-1')).toBe('project');
 	});
 
 	it('keys statuses per workflow', async () => {

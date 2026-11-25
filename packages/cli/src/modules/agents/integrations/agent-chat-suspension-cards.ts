@@ -1,7 +1,5 @@
 import { isRecord } from '@n8n/utils/is-record';
 
-const APPROVAL_INPUT_MAX_LENGTH = 1500;
-
 type SuspendCardPayload = {
 	title?: string;
 	components: Array<{ type: string; [key: string]: unknown }>;
@@ -11,7 +9,8 @@ interface ApprovalSuspendPayload {
 	type: 'approval';
 	toolName: string;
 	displayName?: string;
-	args?: unknown;
+	description?: string;
+	supportsSessionApproval?: boolean;
 }
 
 export function isIntegrationActionSuspendPayload(value: unknown): boolean {
@@ -44,50 +43,31 @@ function isSuspendCardPayload(value: unknown): value is SuspendCardPayload {
 	return value.components.every(isSuspendCardComponent);
 }
 
-function truncateApprovalInput(value: string): string {
-	if (value.length <= APPROVAL_INPUT_MAX_LENGTH) return value;
-	return `${value.slice(0, APPROVAL_INPUT_MAX_LENGTH)}...`;
-}
-
-function stringifyApprovalInput(value: unknown): string | undefined {
-	if (value === undefined) return undefined;
-
-	if (typeof value === 'string') {
-		return truncateApprovalInput(value);
-	}
-
-	try {
-		const serialized = JSON.stringify(value, null, 2);
-		return truncateApprovalInput(serialized ?? String(value));
-	} catch {
-		return truncateApprovalInput(String(value));
-	}
-}
-
 function getApprovalToolLabel(payload: ApprovalSuspendPayload): string {
 	return typeof payload.displayName === 'string' && payload.displayName.length > 0
 		? payload.displayName
 		: payload.toolName;
 }
 
-function buildApprovalCardPayload(payload: ApprovalSuspendPayload): {
+export function buildApprovalCardPayload(payload: ApprovalSuspendPayload): {
 	title: string;
 	components: Array<{ type: string; [key: string]: unknown }>;
 } {
 	const toolLabel = getApprovalToolLabel(payload);
 	const fields: Array<{ label: string; value: string }> = [{ label: 'Tool', value: toolLabel }];
-	const input = stringifyApprovalInput(payload.args);
-
-	if (input) {
-		fields.push({ label: 'Input', value: input });
-	}
 
 	return {
 		title: 'Approval required',
 		components: [
 			{ type: 'section', text: `The agent wants to run this tool: ${toolLabel}` },
+			...(typeof payload.description === 'string' && payload.description.trim()
+				? [{ type: 'section', text: payload.description.trim() }]
+				: []),
 			{ type: 'fields', fields },
 			{ type: 'button', label: 'Approve', value: 'true', style: 'primary' },
+			...(payload.supportsSessionApproval === true
+				? [{ type: 'button', label: 'Allow for this session', value: 'session' }]
+				: []),
 			{ type: 'button', label: 'Deny', value: 'false', style: 'danger' },
 		],
 	};

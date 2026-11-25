@@ -1,7 +1,9 @@
-import { SandboxServiceError } from '@n8n/sandbox-client';
+import { type SandboxClient, SandboxServiceError } from '@n8n/sandbox-client';
 import { dirname } from 'node:path/posix';
 
+import { BaseFilesystem, type BaseFilesystemOptions } from './base-filesystem';
 import { raceWithAbort } from '../../sdk/abort';
+import type { N8nSandboxServiceSandbox } from '../sandbox/n8n-sandbox-sandbox';
 import type {
 	AbortableOptions,
 	AppendOptions,
@@ -16,8 +18,6 @@ import type {
 	RemoveOptions,
 	WriteOptions,
 } from '../types';
-import { BaseFilesystem } from './base-filesystem';
-import type { N8nSandboxServiceSandbox } from '../sandbox/n8n-sandbox-sandbox';
 
 function getParentDirectory(path: string): string | null {
 	const parent = dirname(path);
@@ -34,31 +34,23 @@ export class N8nSandboxFilesystem extends BaseFilesystem {
 
 	status: ProviderStatus = 'pending';
 
-	constructor(private readonly sandbox: N8nSandboxServiceSandbox) {
-		super();
+	constructor(
+		private readonly sandbox: N8nSandboxServiceSandbox,
+		options?: BaseFilesystemOptions,
+	) {
+		super(options);
 		this.id = `n8n-sandbox-fs-${sandbox.id}`;
-	}
-
-	private async getClientAndSandboxId(abortSignal?: AbortSignal) {
-		await this.sandbox.ensureRunning({ abortSignal });
-		return {
-			client: this.sandbox.getClient(),
-			sandboxId: this.sandbox.id,
-		};
 	}
 
 	private async withSandbox<T>(
 		abortSignal: AbortSignal | undefined,
-		op: (
-			client: ReturnType<N8nSandboxServiceSandbox['getClient']>,
-			sandboxId: string,
-		) => Promise<T>,
+		op: (client: SandboxClient, sandboxId: string) => Promise<T>,
 	): Promise<T> {
 		await this.ensureReady();
-		return await raceWithAbort(async () => {
-			const { client, sandboxId } = await this.getClientAndSandboxId(abortSignal);
-			return await op(client, sandboxId);
-		}, abortSignal);
+		return await raceWithAbort(
+			async () => await this.sandbox.withClient(op, { abortSignal }),
+			abortSignal,
+		);
 	}
 
 	async readFile(path: string, options?: ReadOptions): Promise<string | Buffer> {
@@ -80,6 +72,16 @@ export class N8nSandboxFilesystem extends BaseFilesystem {
 				}
 			}
 			await client.writeFile(sandboxId, path, content, options?.overwrite ?? true);
+		});
+	}
+
+	/** Upload many files in one request. The service creates missing parent directories. */
+	async writeFiles(
+		files: Array<{ path: string; content: FileContent }>,
+		options?: AbortableOptions,
+	): Promise<void> {
+		await this.withSandbox(options?.abortSignal, async (client, sandboxId) => {
+			await client.writeFiles(sandboxId, files);
 		});
 	}
 

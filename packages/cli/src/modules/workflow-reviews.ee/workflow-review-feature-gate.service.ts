@@ -1,17 +1,19 @@
+import type { WorkflowReviewsPolicy } from '@n8n/api-types';
 import { LicenseState } from '@n8n/backend-common';
 import { Service } from '@n8n/di';
 
-import { isWorkflowReviewsFeatureAvailable } from '@/constants/workflow-reviews';
-import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
+import { ForbiddenError } from '@n8n/errors';
 import { WorkflowReviewPolicyService } from '@/services/workflow-review-policy.service';
 
-type WorkflowReviewAvailability = { available: true } | { available: false; errorMessage: string };
+type WorkflowReviewAvailability =
+	| { available: true; policy: WorkflowReviewsPolicy }
+	| { available: false; errorMessage: string };
 
 /**
- * Single gate for the workflow reviews feature: license (plus env flag) and the
- * instance policy. Every entry point of the review services calls it, so a
- * non-HTTP caller is gated too — the controller's `@Licensed` decorator only
- * covers the routes.
+ * Single gate for the workflow reviews feature: license and the instance
+ * policy. Every entry point of the review services calls it, so a non-HTTP
+ * caller is gated too — the controller's `@Licensed` decorator only covers
+ * the routes.
  */
 @Service()
 export class WorkflowReviewFeatureGate {
@@ -24,6 +26,12 @@ export class WorkflowReviewFeatureGate {
 		return (await this.getAvailability()).available;
 	}
 
+	/** The instance policy when reviews are available, so a caller reads it only once. */
+	async getAvailablePolicy(): Promise<WorkflowReviewsPolicy | null> {
+		const availability = await this.getAvailability();
+		return availability.available ? availability.policy : null;
+	}
+
 	async assertAvailable(): Promise<void> {
 		const availability = await this.getAvailability();
 		if (!availability.available) {
@@ -32,7 +40,7 @@ export class WorkflowReviewFeatureGate {
 	}
 
 	private async getAvailability(): Promise<WorkflowReviewAvailability> {
-		if (!isWorkflowReviewsFeatureAvailable(this.licenseState.isWorkflowReviewsLicensed())) {
+		if (!this.licenseState.isWorkflowReviewsLicensed()) {
 			return {
 				available: false,
 				errorMessage: 'Workflow reviews are not available on this instance',
@@ -47,6 +55,6 @@ export class WorkflowReviewFeatureGate {
 			};
 		}
 
-		return { available: true };
+		return { available: true, policy };
 	}
 }

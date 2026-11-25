@@ -69,6 +69,24 @@ export class WebhookTriggerRegistrar {
 	}
 
 	/**
+	 * The webhook triggers of a single node. Lets a caller isolate one node's
+	 * expression-evaluation failure instead of losing every node's webhooks to
+	 * the wholesale {@link getWebhookTriggers}. Same isolate note as there.
+	 */
+	getNodeWebhookTriggers(
+		workflow: Workflow,
+		node: INode,
+		additionalData: IWorkflowExecuteAdditionalData,
+	): IWebhookData[] {
+		return this.webhookService.getNodeWebhooks(
+			workflow,
+			node,
+			additionalData,
+			/* ignoreRestartWebhooks */ true,
+		);
+	}
+
+	/**
 	 * Register one workflow-defined webhook in storage and with third-party services.
 	 */
 	async register({ workflow, webhookData, mode, activation }: WebhookTriggerRegistrationOptions) {
@@ -243,10 +261,10 @@ export class WebhookTriggerRegistrar {
 
 	private async clearRegisteredWebhook(workflow: Workflow, webhookData: IWebhookData) {
 		try {
+			// The row goes first so a failed external delete cannot leave the node looking registered.
+			await this.clearWorkflowWebhooksForNodes(workflow.id, [webhookData.node]);
 			await this.deregister({ workflow, webhookData });
 			await this.workflowStaticDataService.saveStaticData(workflow);
-
-			await this.clearWorkflowWebhooksForNodes(workflow.id, [webhookData.node]);
 		} catch (clearError) {
 			const error = ensureError(clearError);
 			this.errorReporter.error(error);
