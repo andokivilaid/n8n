@@ -19,6 +19,7 @@ export {
 	type SandboxCommandTarget,
 } from './run-in-sandbox';
 export { loadDaytona } from './lazy-daytona';
+export { loadE2b } from './lazy-e2b';
 export { SandboxAcquisitionError, SandboxNameConflictError, SandboxNotReadyError } from './errors';
 export { createFilesystem, createSandbox } from './create-workspace';
 export type {
@@ -34,6 +35,7 @@ export type {
 	SandboxFilesystem,
 	CreateSandboxOptions,
 	DaytonaSandboxConfig,
+	E2bSandboxConfig,
 	N8nSandboxConfig,
 	DisabledSandboxConfig,
 	ExecuteCommandOptions,

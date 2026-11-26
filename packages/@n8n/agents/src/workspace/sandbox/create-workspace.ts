@@ -1,4 +1,5 @@
 import { DaytonaSandbox } from './daytona-sandbox';
+import { E2bSandbox } from './e2b-sandbox';
 import { N8nSandboxServiceSandbox } from './n8n-sandbox-sandbox';
 import type {
 	CreateSandboxOptions,
@@ -8,6 +9,7 @@ import type {
 } from './types';
 import type { BaseFilesystemOptions } from '../filesystem/base-filesystem';
 import { DaytonaFilesystem } from '../filesystem/daytona-filesystem';
+import { E2bFilesystem } from '../filesystem/e2b-filesystem';
 import { N8nSandboxFilesystem } from '../filesystem/n8n-sandbox-filesystem';
 
 export async function createSandbox(
@@ -70,6 +72,21 @@ function buildSandbox(
 		});
 	}
 
+	if (provider === 'e2b') {
+		const logger = options.logger ?? config.logger;
+		return new E2bSandbox({
+			id: config.id,
+			...(config.egress !== undefined ? { allowInternetAccess: config.egress === 'public' } : {}),
+			...(config.ephemeral !== undefined ? { ephemeral: config.ephemeral } : {}),
+			apiKey: config.apiKey,
+			...(config.template ? { template: config.template } : {}),
+			...(config.domain ? { domain: config.domain } : {}),
+			...(config.metadata ? { metadata: config.metadata } : {}),
+			timeout: config.timeout ?? 300_000,
+			logger,
+		});
+	}
+
 	const exhaustiveProvider: never = provider;
 	throw new Error(`Unsupported sandbox provider: ${String(exhaustiveProvider)}`);
 }
@@ -91,6 +108,10 @@ export function createFilesystem(
 
 	if (sandbox instanceof DaytonaSandbox) {
 		return new DaytonaFilesystem(sandbox, options);
+	}
+
+	if (sandbox instanceof E2bSandbox) {
+		return new E2bFilesystem(sandbox, options);
 	}
 
 	throw new Error(`Unsupported sandbox instance: ${sandbox.name}`);

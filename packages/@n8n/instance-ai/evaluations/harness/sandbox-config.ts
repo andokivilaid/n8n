@@ -19,7 +19,7 @@ const DEFAULT_TIMEOUT_MS = 300_000;
  * than the SDK's 300s default; 900s avoids spurious eval-run failures.
  */
 const DEFAULT_DAYTONA_CREATE_TIMEOUT_SECONDS = 900;
-const VALID_PROVIDERS: SandboxProvider[] = ['n8n-sandbox', 'daytona'];
+const VALID_PROVIDERS: SandboxProvider[] = ['n8n-sandbox', 'daytona', 'e2b'];
 
 export function resolveSandboxConfig(env: NodeJS.ProcessEnv): SandboxConfig {
 	const providerRaw = env.N8N_INSTANCE_AI_SANDBOX_PROVIDER ?? 'n8n-sandbox';
@@ -76,6 +76,23 @@ export function resolveSandboxConfig(env: NodeJS.ProcessEnv): SandboxConfig {
 			provider: 'n8n-sandbox',
 			serviceUrl,
 			...(apiKey ? { apiKey } : {}),
+			timeout,
+		};
+	}
+
+	if (provider === 'e2b') {
+		const apiKey = env.E2B_API_KEY;
+		if (!apiKey) {
+			throw new Error('E2B_API_KEY is required for sandbox provider "e2b". Set the E2B API key.');
+		}
+		const template = env.E2B_TEMPLATE;
+		const domain = env.E2B_DOMAIN;
+		return {
+			enabled: true,
+			provider: 'e2b',
+			apiKey,
+			...(template ? { template } : {}),
+			...(domain ? { domain } : {}),
 			timeout,
 		};
 	}

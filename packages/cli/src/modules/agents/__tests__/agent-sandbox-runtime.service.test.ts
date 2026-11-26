@@ -74,6 +74,11 @@ function makeSandboxSettingsService(
 		serviceUrl: 'https://sandbox.example',
 		apiKey: 'sandbox-key',
 	});
+	service.resolveE2bConfig.mockResolvedValue({
+		apiKey: 'e2b-key',
+		template: 'e2b-template',
+		domain: 'e2b.example',
+	});
 	return service;
 }
 
@@ -113,7 +118,12 @@ function makeSandbox(
 ): ReturnType<typeof mock<TestWorkspaceSandbox>> {
 	const sandbox = mock<TestWorkspaceSandbox>({
 		id,
-		name: provider === 'daytona' ? 'DaytonaSandbox' : 'N8nSandboxServiceSandbox',
+		name:
+			provider === 'daytona'
+				? 'DaytonaSandbox'
+				: provider === 'e2b'
+					? 'E2bSandbox'
+					: 'N8nSandboxServiceSandbox',
 		provider,
 		status: 'pending',
 	});
@@ -132,7 +142,7 @@ describe('AgentSandboxRuntimeService', () => {
 		createFilesystemMock.mockReturnValue(mock<WorkspaceFilesystem>());
 	});
 
-	it.each(['daytona', 'n8n-sandbox'] as const)(
+	it.each(['daytona', 'n8n-sandbox', 'e2b'] as const)(
 		'under disabled policy, blocks %s egress for workspace and knowledge sandboxes even if an agent requests it',
 		async (provider) => {
 			const service = makeService({
@@ -154,7 +164,7 @@ describe('AgentSandboxRuntimeService', () => {
 		},
 	);
 
-	it.each(['daytona', 'n8n-sandbox'] as const)(
+	it.each(['daytona', 'n8n-sandbox', 'e2b'] as const)(
 		'under opt-in policy, keeps %s workspace egress off by default and enables it only when the agent opts in',
 		async (provider) => {
 			const service = makeService({
@@ -184,18 +194,18 @@ describe('AgentSandboxRuntimeService', () => {
 				'none',
 			]);
 			expect(createSandboxMock.mock.calls.map(([config]) => config.id)).toEqual(
-				provider === 'daytona'
-					? [
+				provider === 'n8n-sandbox'
+					? [workspaceSandboxId, publicWorkspaceSandboxId, knowledgeSandboxId]
+					: [
 							`agent-ws-${workspaceSandboxId}`,
 							`agent-ws-${publicWorkspaceSandboxId}`,
 							`agent-kb-${knowledgeSandboxId}`,
-						]
-					: [workspaceSandboxId, publicWorkspaceSandboxId, knowledgeSandboxId],
+						],
 			);
 		},
 	);
 
-	it.each(['daytona', 'n8n-sandbox'] as const)(
+	it.each(['daytona', 'n8n-sandbox', 'e2b'] as const)(
 		'under opt-out policy, keeps %s public workspace identity by default, lets an agent disable egress, and keeps knowledge egress disabled',
 		async (provider) => {
 			const service = makeService({
@@ -225,13 +235,13 @@ describe('AgentSandboxRuntimeService', () => {
 				'none',
 			]);
 			expect(createSandboxMock.mock.calls.map(([config]) => config.id)).toEqual(
-				provider === 'daytona'
-					? [
+				provider === 'n8n-sandbox'
+					? [publicWorkspaceSandboxId, workspaceSandboxId, knowledgeSandboxId]
+					: [
 							`agent-ws-${publicWorkspaceSandboxId}`,
 							`agent-ws-${workspaceSandboxId}`,
 							`agent-kb-${knowledgeSandboxId}`,
-						]
-					: [publicWorkspaceSandboxId, workspaceSandboxId, knowledgeSandboxId],
+						],
 			);
 		},
 	);
@@ -253,6 +263,31 @@ describe('AgentSandboxRuntimeService', () => {
 			`agent-kb-${knowledgeSandboxId}`,
 			`agent-kb-${knowledgeSandboxId}`,
 		]);
+	});
+
+	it('creates and starts a deterministic E2B workspace sandbox when e2b provider is active', async () => {
+		const e2bSandbox = makeSandbox('e2b', `agent-ws-${workspaceSandboxId}`);
+		createSandboxMock.mockResolvedValue(e2bSandbox);
+		const sandboxSettingsService = makeSandboxSettingsService('e2b');
+		const service = makeService({ sandboxSettingsService });
+
+		const runtime = await service.acquireWorkspaceSandbox(projectId, agentId, principalHash);
+
+		expect(createSandboxMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabled: true,
+				provider: 'e2b',
+				egress: 'none',
+				id: `agent-ws-${workspaceSandboxId}`,
+				apiKey: 'e2b-key',
+				template: 'e2b-template',
+				domain: 'e2b.example',
+				ephemeral: false,
+			}),
+			expect.any(Object),
+		);
+		expect(runtime.provider).toBe('e2b');
+		expect(runtime.workspaceRoot).toBe('/home/user/workspace');
 	});
 
 	it('creates and starts the deterministic direct-mode Daytona knowledge sandbox', async () => {
@@ -479,12 +514,16 @@ describe('AgentSandboxRuntimeService', () => {
 		expect(destroyedIds).toEqual([
 			`agent-ws-${publicWorkspaceSandboxId}`,
 			publicWorkspaceSandboxId,
+			`agent-ws-${publicWorkspaceSandboxId}`,
 			`agent-ws-${workspaceSandboxId}`,
 			workspaceSandboxId,
+			`agent-ws-${workspaceSandboxId}`,
 			`agent-kb-${publicKnowledgeSandboxId}`,
 			publicKnowledgeSandboxId,
+			`agent-kb-${publicKnowledgeSandboxId}`,
 			`agent-kb-${knowledgeSandboxId}`,
 			knowledgeSandboxId,
+			`agent-kb-${knowledgeSandboxId}`,
 		]);
 	});
 });

@@ -4,6 +4,7 @@ import {
 	getPromptWorkspaceRoot,
 	type CommandResult,
 	type DaytonaSandboxConfig,
+	type E2bSandboxConfig,
 	type FilesystemLifecycleHook,
 	type N8nSandboxConfig,
 	type SandboxProvider,
@@ -314,9 +315,11 @@ export class AgentSandboxRuntimeService {
 	): Promise<void> {
 		for (const egressEnabled of [true, false]) {
 			const id = sandboxIdForEgress(n8nSandboxId, egressEnabled);
+			const namedId = `${daytonaNamePrefix}${id}`;
 			const sandboxes = [
-				['daytona', `${daytonaNamePrefix}${id}`],
+				['daytona', namedId],
 				['n8n-sandbox', id],
+				['e2b', namedId],
 			] as const;
 
 			for (const [provider, sandboxId] of sandboxes) {
@@ -341,10 +344,14 @@ export class AgentSandboxRuntimeService {
 		labels: Record<string, string>,
 	): Promise<void> {
 		try {
-			const config =
-				provider === 'daytona'
-					? await this.resolveDaytonaSandboxConfig(projectId, sandboxId, egressEnabled, labels)
-					: await this.resolveN8nSandboxConfig(sandboxId, egressEnabled);
+			const config = await this.resolveProviderSandboxConfig(
+				provider,
+				projectId,
+				sandboxId,
+				sandboxId,
+				egressEnabled,
+				labels,
+			);
 			const sandbox = await createSandbox(config, { logger: this.logger });
 			// deleteRemote deletes by sandbox identity even though this instance never
 			// started it; destroy() is scoped to remotes the instance acquired.
@@ -377,21 +384,45 @@ export class AgentSandboxRuntimeService {
 	): Promise<AgentSandboxRuntime> {
 		await getAgentOrThrow(this.agentRepository, agentId, projectId);
 
-		const config =
-			provider === 'daytona'
-				? await this.resolveDaytonaSandboxConfig(
-						projectId,
-						daytonaName,
-						egressEnabled,
-						labels,
-						lifecycle,
-					)
-				: await this.resolveN8nSandboxConfig(n8nSandboxId, egressEnabled, lifecycle);
+		const config = await this.resolveProviderSandboxConfig(
+			provider,
+			projectId,
+			daytonaName,
+			n8nSandboxId,
+			egressEnabled,
+			labels,
+			lifecycle,
+		);
 		return await this.startSandbox(config, projectId, agentId, cacheKey, startOptions);
 	}
 
+	private async resolveProviderSandboxConfig(
+		provider: SandboxProvider,
+		projectId: string,
+		namedSandboxId: string,
+		uuidSandboxId: string,
+		egressEnabled: boolean,
+		labels: Record<string, string>,
+		lifecycle: SandboxLifecycle = {},
+	): Promise<DaytonaSandboxConfig | N8nSandboxConfig | E2bSandboxConfig> {
+		switch (provider) {
+			case 'daytona':
+				return await this.resolveDaytonaSandboxConfig(
+					projectId,
+					namedSandboxId,
+					egressEnabled,
+					labels,
+					lifecycle,
+				);
+			case 'e2b':
+				return await this.resolveE2bSandboxConfig(namedSandboxId, egressEnabled, labels, lifecycle);
+			case 'n8n-sandbox':
+				return await this.resolveN8nSandboxConfig(uuidSandboxId, egressEnabled, lifecycle);
+		}
+	}
+
 	private async startSandbox(
-		config: DaytonaSandboxConfig | N8nSandboxConfig,
+		config: DaytonaSandboxConfig | N8nSandboxConfig | E2bSandboxConfig,
 		projectId: string,
 		agentId: string,
 		cacheKey: string,
@@ -449,6 +480,33 @@ export class AgentSandboxRuntimeService {
 			timeout: this.agentsConfig.sandboxTimeout,
 			createTimeoutSeconds: Math.ceil(this.agentsConfig.sandboxTimeout / 1000),
 			...lifecycle,
+		};
+	}
+
+	private async resolveE2bSandboxConfig(
+		sandboxId: string,
+		egressEnabled: boolean,
+		labels: Record<string, string>,
+		lifecycle: Pick<SandboxLifecycle, 'ephemeral'> = {},
+	): Promise<E2bSandboxConfig> {
+		const { apiKey, template, domain } = await this.sandboxSettingsService.resolveE2bConfig();
+		const normalizedApiKey = apiKey?.trim();
+		if (!normalizedApiKey) {
+			throw new OperationalError(
+				'Agent knowledge sandbox requires an E2B API key. Set E2B_API_KEY or connect the E2B credential.',
+			);
+		}
+		return {
+			enabled: true,
+			provider: 'e2b',
+			egress: egressEnabled ? 'public' : 'none',
+			id: sandboxId,
+			apiKey: normalizedApiKey,
+			...(template ? { template } : {}),
+			...(domain ? { domain } : {}),
+			metadata: labels,
+			timeout: this.agentsConfig.sandboxTimeout,
+			ephemeral: lifecycle.ephemeral,
 		};
 	}
 

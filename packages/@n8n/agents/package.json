@@ -123,6 +123,7 @@
     "@opentelemetry/sdk-trace-node": ">=1.0.0",
     "ai": "catalog:",
     "ajv": "^8.18.0",
+    "e2b": "catalog:",
     "google-auth-library": "catalog:",
     "langsmith": "catalog:",
     "undici": "catalog:undici-v7",

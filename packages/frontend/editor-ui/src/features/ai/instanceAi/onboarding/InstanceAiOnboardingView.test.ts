@@ -114,6 +114,7 @@ function setupStore(overrides: Record<string, unknown> = {}) {
 			sandboxEnabled: false,
 			sandboxProvider: 'n8n-sandbox',
 			daytonaCredentialId: null,
+			e2bCredentialId: null,
 			n8nSandboxCredentialId: null,
 			searchCredentialId: null,
 			modelCredentialId: null,

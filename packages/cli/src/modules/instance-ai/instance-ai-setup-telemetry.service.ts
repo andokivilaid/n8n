@@ -117,8 +117,11 @@ export class InstanceAiSetupTelemetryService {
 		return provider === 'brave' || provider === 'searxng' ? provider : null;
 	}
 
-	private sandboxTypeOf(selection: AdminCredentialSelection): 'daytona' | 'n8n-sandbox' | null {
+	private sandboxTypeOf(
+		selection: AdminCredentialSelection,
+	): 'daytona' | 'n8n-sandbox' | 'e2b' | null {
 		if (selection.daytonaCredentialId) return 'daytona';
+		if (selection.e2bCredentialId) return 'e2b';
 		if (selection.n8nSandboxCredentialId) return 'n8n-sandbox';
 		return null;
 	}
@@ -213,6 +216,7 @@ export class InstanceAiSetupTelemetryService {
 		const changed =
 			connectionUpdated ||
 			previous.daytonaCredentialId !== next.daytonaCredentialId ||
+			previous.e2bCredentialId !== next.e2bCredentialId ||
 			previous.n8nSandboxCredentialId !== next.n8nSandboxCredentialId;
 		const nextSandboxType = this.sandboxTypeOf(next);
 		if (!changed || !nextSandboxType) return;

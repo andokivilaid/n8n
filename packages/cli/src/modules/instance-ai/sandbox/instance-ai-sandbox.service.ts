@@ -170,6 +170,17 @@ function withThreadScopedSandboxIdentity(
 		return { ...config, id: buildThreadScopedSandboxUuid(threadId, scheme) };
 	}
 
+	if (config.provider === 'e2b') {
+		return {
+			...config,
+			id: buildThreadScopedSandboxUuid(threadId, scheme),
+			metadata: {
+				...buildThreadScopedSandboxLabels(threadId, undefined, scheme),
+				...config.metadata,
+			},
+		};
+	}
+
 	const name = buildThreadScopedSandboxName(threadId, config.namePrefix, scheme);
 	return {
 		...config,
@@ -196,6 +207,7 @@ export type InstanceAiSandboxBackgroundTasks = {
 /** Settings collaborator that resolves provider credentials from admin config. */
 export type InstanceAiSandboxSettings = {
 	resolveDaytonaConfig: () => Promise<{ apiUrl?: string; apiKey?: string }>;
+	resolveE2bConfig?: () => Promise<{ apiKey?: string; template?: string; domain?: string }>;
 	resolveN8nSandboxConfig: () => Promise<{ serviceUrl?: string; apiKey?: string }>;
 };
 
@@ -280,6 +292,9 @@ export class InstanceAiSandboxService {
 			sandboxProvider,
 			daytonaApiUrl,
 			daytonaApiKey,
+			e2bApiKey,
+			e2bTemplate,
+			e2bDomain,
 			n8nSandboxServiceUrl,
 			n8nSandboxServiceApiKey,
 			sandboxImage,
@@ -319,6 +334,18 @@ export class InstanceAiSandboxService {
 				// if we also pass a non-zero value, so leave it unset on the ephemeral path.
 				autoDeleteInterval: sandboxEphemeral ? undefined : sandboxAutoDeleteMinutes,
 				refreshSkewMs: daytonaTokenRefreshSkewMs,
+			};
+		}
+
+		if (provider === 'e2b') {
+			return {
+				enabled: true,
+				provider: 'e2b',
+				apiKey: e2bApiKey || undefined,
+				template: e2bTemplate || undefined,
+				domain: e2bDomain || undefined,
+				timeout: sandboxTimeout,
+				ephemeral: sandboxEphemeral,
 			};
 		}
 
@@ -381,6 +408,22 @@ export class InstanceAiSandboxService {
 				daytonaApiKey,
 			};
 		}
+		if (base.provider === 'e2b') {
+			const e2b = (await this.options.settingsService.resolveE2bConfig?.()) ?? {};
+			const apiKey = e2b.apiKey ?? base.apiKey;
+			if (!apiKey) {
+				throw new OperationalError(
+					'The E2B sandbox is enabled but no API key is configured. Set the E2B_API_KEY environment variable or connect the E2B credential.',
+				);
+			}
+			return {
+				...base,
+				apiKey,
+				template: e2b.template ?? base.template,
+				domain: e2b.domain ?? base.domain,
+			};
+		}
+
 		const sandbox = await this.options.settingsService.resolveN8nSandboxConfig();
 		return {
 			...base,
@@ -500,7 +543,7 @@ export class InstanceAiSandboxService {
 			// (idle reaping, runner restart), and the provider recreates it empty. The
 			// marker inside the sandbox is the only reliable record of setup.
 			if (
-				entry.sandbox.provider !== 'n8n-sandbox' ||
+				(entry.sandbox.provider !== 'n8n-sandbox' && entry.sandbox.provider !== 'e2b') ||
 				(await isSandboxWorkspaceInitialized(entry.workspace))
 			) {
 				return;

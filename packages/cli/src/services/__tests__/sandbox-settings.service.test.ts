@@ -24,6 +24,9 @@ describe('SandboxSettingsService', () => {
 			n8nSandboxServiceApiKey: '',
 			daytonaApiUrl: '',
 			daytonaApiKey: '',
+			e2bApiKey: '',
+			e2bTemplate: '',
+			e2bDomain: '',
 		} as unknown as InstanceAiConfig,
 		deployment: { type: 'default' },
 	});
@@ -44,6 +47,9 @@ describe('SandboxSettingsService', () => {
 			n8nSandboxServiceApiKey: '',
 			daytonaApiUrl: '',
 			daytonaApiKey: '',
+			e2bApiKey: '',
+			e2bTemplate: '',
+			e2bDomain: '',
 		});
 		globalConfig.deployment.type = 'default';
 		logger.scoped.mockReturnValue(logger);
@@ -262,5 +268,25 @@ describe('SandboxSettingsService', () => {
 			apiKey: 'sandbox-env-key',
 		});
 		expect(instanceCredentialBroker.resolveForUse).not.toHaveBeenCalled();
+	});
+
+	it('uses assigned E2B credentials with env fallbacks for optional fields', async () => {
+		Object.assign(globalConfig.instanceAi, {
+			e2bApiKey: 'env-e2b-key',
+			e2bTemplate: 'env-template',
+			e2bDomain: 'env.e2b.example.com',
+		});
+		instanceCredentialBroker.resolveForUse.mockResolvedValue({
+			id: 'e2b-credential',
+			name: 'E2B',
+			type: 'e2bApi',
+			data: { apiKey: 'credential-e2b-key', template: 'custom-template' },
+		});
+
+		await expect(service.resolveE2bConfig()).resolves.toEqual({
+			apiKey: 'credential-e2b-key',
+			template: 'custom-template',
+			domain: 'env.e2b.example.com',
+		});
 	});
 });

@@ -22,9 +22,8 @@ const isEnvironmentManaged = computed(
 const sandboxValue = computed(() => {
 	if (isEnvironmentManaged.value) return i18n.baseText('instanceAi.onboarding.foundOnServer');
 	if (sandboxCredentialId.value) {
-		return store.settings?.sandboxProvider === 'daytona'
-			? SANDBOX_PROVIDER_LABELS.daytona
-			: SANDBOX_PROVIDER_LABELS['n8n-sandbox'];
+		const provider = store.settings?.sandboxProvider ?? 'n8n-sandbox';
+		return SANDBOX_PROVIDER_LABELS[provider];
 	}
 	return i18n.baseText('settings.n8nAgent.sandbox.env.value');
 });

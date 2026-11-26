@@ -109,6 +109,9 @@ describe('InstanceAiSettingsService', () => {
 			searxngUrl: '',
 			daytonaApiUrl: '',
 			daytonaApiKey: '',
+			e2bApiKey: '',
+			e2bTemplate: '',
+			e2bDomain: '',
 			vertexProjectId: '',
 			vertexLocation: '',
 			vertexServiceAccountJson: '',
@@ -121,7 +124,11 @@ describe('InstanceAiSettingsService', () => {
 		instanceCredentialBroker.listForUse.mockResolvedValue([]);
 		instanceCredentialBroker.getAssignedCredentialId.mockResolvedValue(null);
 		sandboxSettingsService.getProvider.mockImplementation(() =>
-			globalConfig.instanceAi.sandboxProvider === 'daytona' ? 'daytona' : 'n8n-sandbox',
+			globalConfig.instanceAi.sandboxProvider === 'daytona'
+				? 'daytona'
+				: globalConfig.instanceAi.sandboxProvider === 'e2b'
+					? 'e2b'
+					: 'n8n-sandbox',
 		);
 		credentialsService.getCredentialTypeProperties.mockReturnValue([]);
 		credentialsService.unredact.mockImplementation((data) => data);

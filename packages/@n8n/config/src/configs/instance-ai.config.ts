@@ -173,7 +173,7 @@ export class InstanceAiConfig {
 	@Env('N8N_INSTANCE_AI_SANDBOX_ENABLED')
 	sandboxEnabled: boolean = false;
 
-	/** Sandbox provider: 'n8n-sandbox' for n8n sandbox service, 'daytona' for Daytona-backed containers. */
+	/** Sandbox provider for code execution. One of `n8n-sandbox`, `daytona`, or `e2b`. */
 	@Env('N8N_INSTANCE_AI_SANDBOX_PROVIDER')
 	sandboxProvider: string = 'n8n-sandbox';
 
@@ -184,6 +184,18 @@ export class InstanceAiConfig {
 	/** Daytona API key for authentication. */
 	@Env('DAYTONA_API_KEY')
 	daytonaApiKey: string = '';
+
+	/** E2B API key for authenticating with E2B sandboxes. */
+	@Env('E2B_API_KEY')
+	e2bApiKey: string = '';
+
+	/** E2B sandbox template ID or alias to use when creating sandboxes. When unset, E2B uses its default template. */
+	@Env('E2B_TEMPLATE')
+	e2bTemplate: string = '';
+
+	/** Custom E2B domain for self-hosted E2B deployments, for example `e2b.example.com`. Leave empty to use the hosted E2B cloud. */
+	@Env('E2B_DOMAIN')
+	e2bDomain: string = '';
 
 	/** n8n sandbox service base URL. */
 	@Env('N8N_SANDBOX_SERVICE_URL')
