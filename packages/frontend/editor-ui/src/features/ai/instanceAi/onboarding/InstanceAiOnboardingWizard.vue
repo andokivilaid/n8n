@@ -308,6 +308,7 @@ async function credentialData(id: string | null | undefined): Promise<unknown> {
 
 function modelProviderForCredentialType(type: string): InstanceAiModelProvider {
 	if (type === 'anthropicApi') return 'anthropic';
+	if (type === 'googlePalmApi') return 'google';
 	if (type === 'openRouterApi') return 'openrouter';
 	return 'openai';
 }
@@ -500,6 +501,7 @@ function selectSearchProvider(provider: unknown): void {
 function modelConnection(): InstanceAiConnectionUpdate {
 	const data: Record<string, unknown> = {};
 	if (modelApiKey.value.trim()) data.apiKey = modelApiKey.value.trim();
+	if (modelProvider.value === 'google') data.host = 'https://generativelanguage.googleapis.com';
 	if (modelProvider.value === 'custom') data.url = modelBaseUrl.value.trim();
 	return { type: modelConfig.value.credentialType, data };
 }
@@ -897,6 +899,8 @@ const stepLede = computed(() => {
 								:model-value="modelName"
 								:teleported="true"
 								filterable
+								allow-create
+								default-first-option
 								:disabled="readOnly"
 								:data-test-id="
 									surface === 'settings' ? 'n8n-agent-model-name-input' : 'assistant-model-name'

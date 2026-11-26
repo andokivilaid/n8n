@@ -13,6 +13,7 @@ const catalog: InstanceAiModelCatalogResponse['models'] = {
 		{ id: 'claude-invalid', name: 'Claude Invalid', releaseDate: 'unknown' },
 	],
 	openai: [],
+	google: [],
 	openrouter: [],
 };
 
@@ -69,6 +70,7 @@ describe('getInstanceAiModelOptions', () => {
 			{
 				...catalog,
 				openai: [{ id: 'gpt-dynamic', name: 'GPT Dynamic', releaseDate: '2026-04-01' }],
+				google: [{ id: 'gemini-dynamic', name: 'Gemini Dynamic', releaseDate: '2026-04-15' }],
 				openrouter: [
 					{
 						id: 'openrouter/dynamic',
@@ -82,6 +84,7 @@ describe('getInstanceAiModelOptions', () => {
 		const curatedIds = [
 			...INSTANCE_AI_CURATED_MODELS.anthropic,
 			...INSTANCE_AI_CURATED_MODELS.openai,
+			...INSTANCE_AI_CURATED_MODELS.google,
 			...INSTANCE_AI_CURATED_MODELS.openrouter,
 		];
 
@@ -90,6 +93,7 @@ describe('getInstanceAiModelOptions', () => {
 			expect.arrayContaining([
 				'claude-zeta',
 				'gpt-dynamic',
+				'gemini-dynamic',
 				'openrouter/dynamic',
 				'saved-env-model',
 			]),

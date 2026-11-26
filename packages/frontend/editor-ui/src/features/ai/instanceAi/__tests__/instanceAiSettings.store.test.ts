@@ -425,6 +425,7 @@ describe('useInstanceAiSettingsStore', () => {
 			models: {
 				anthropic: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' }],
 				openai: [],
+				google: [],
 				openrouter: [],
 			},
 		};
@@ -455,7 +456,9 @@ describe('useInstanceAiSettingsStore', () => {
 		it('allows a retry after a failed or empty response', async () => {
 			mockFetchModelCatalog
 				.mockRejectedValueOnce(new Error('offline'))
-				.mockResolvedValueOnce({ models: { anthropic: [], openai: [], openrouter: [] } })
+				.mockResolvedValueOnce({
+					models: { anthropic: [], openai: [], google: [], openrouter: [] },
+				})
 				.mockResolvedValueOnce(response);
 
 			await store.loadModelCatalog();

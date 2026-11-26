@@ -155,6 +155,7 @@ describe('InstanceAiModelCatalogService', () => {
 					{ id: 'undated', name: 'Undated' },
 				],
 				openai: [{ id: 'gpt-tools', name: 'GPT Tools' }],
+				google: [{ id: 'gemini', name: 'Gemini' }],
 				openrouter: [{ id: 'provider/model', name: 'Provider Model' }],
 			},
 		});
@@ -187,6 +188,7 @@ describe('InstanceAiModelCatalogService', () => {
 			models: {
 				anthropic: [{ id: 'valid', name: 'Valid' }],
 				openai: [],
+				google: [],
 				openrouter: [],
 			},
 		});
@@ -233,7 +235,7 @@ describe('InstanceAiModelCatalogService', () => {
 		fetchProviderCatalog.mockRejectedValue(new Error('still offline'));
 		const { service: emptyService } = makeService();
 		await expect(emptyService.getModels()).resolves.toEqual({
-			models: { anthropic: [], openai: [], openrouter: [] },
+			models: { anthropic: [], openai: [], google: [], openrouter: [] },
 		});
 	});
 
@@ -271,7 +273,7 @@ describe('InstanceAiModelCatalogService', () => {
 		await vi.advanceTimersByTimeAsync(5000);
 
 		await expect(request).resolves.toEqual({
-			models: { anthropic: [], openai: [], openrouter: [] },
+			models: { anthropic: [], openai: [], google: [], openrouter: [] },
 		});
 		expect(logger.warn).toHaveBeenCalledWith('Failed to load the Instance AI model catalog', {
 			error: 'Model catalog request timed out',

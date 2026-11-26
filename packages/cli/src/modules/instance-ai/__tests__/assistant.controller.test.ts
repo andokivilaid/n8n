@@ -138,7 +138,7 @@ describe('AssistantController', () => {
 
 	describe('getModelCatalog', () => {
 		it('should return the model catalog service response', async () => {
-			const response = { models: { anthropic: [], openai: [], openrouter: [] } };
+			const response = { models: { anthropic: [], openai: [], google: [], openrouter: [] } };
 			modelCatalogService.getModels.mockResolvedValue(response);
 
 			await expect(controller.getModelCatalog(req)).resolves.toEqual(response);

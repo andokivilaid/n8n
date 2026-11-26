@@ -131,6 +131,7 @@ describe('InstanceAiOnboardingWizard', () => {
 					{ id: 'claude-haiku-5', name: 'Claude Haiku 5' },
 				],
 				openai: [],
+				google: [],
 				openrouter: [],
 			},
 		});
@@ -165,6 +166,7 @@ describe('InstanceAiOnboardingWizard', () => {
 					{ id: 'gpt-6-astra', name: 'GPT-6 Astra' },
 					{ id: 'gpt-dynamic', name: 'GPT Dynamic' },
 				],
+				google: [],
 				openrouter: [],
 			},
 		});
@@ -288,6 +290,7 @@ describe('InstanceAiOnboardingWizard', () => {
 			modelCatalog: {
 				anthropic: [{ id: 'claude-dynamic', name: 'Claude Dynamic' }],
 				openai: [{ id: 'gpt-dynamic', name: 'GPT Dynamic' }],
+				google: [{ id: 'gemini-dynamic', name: 'Gemini Dynamic' }],
 				openrouter: [{ id: 'openrouter/dynamic', name: 'OpenRouter Dynamic' }],
 			},
 		});
@@ -297,8 +300,41 @@ describe('InstanceAiOnboardingWizard', () => {
 
 		expect(await findByText('Claude Dynamic')).toBeVisible();
 		expect(await findByText('GPT Dynamic')).toBeVisible();
+		expect(await findByText('Gemini Dynamic')).toBeVisible();
 		expect(await findByText('OpenRouter Dynamic')).toBeVisible();
 		expect(await findByText('saved-env-model')).toBeVisible();
+	});
+
+	it('verifies and saves a Google Gemini model connection with default host', async () => {
+		const { pinia, store } = setupStore();
+		vi.mocked(store.verifyModel).mockResolvedValue({ ok: true, latencyMs: 80 });
+		const { findByTestId, findByText, getByTestId } = renderWizard({ pinia });
+
+		await fireEvent.click(inputFor(await findByTestId('assistant-model-provider')));
+		await fireEvent.click(await findByText('Google Gemini'));
+		await fireEvent.update(inputFor(getByTestId('assistant-model-api-key')), ' AIza-test-key ');
+		await fireEvent.click(getByTestId('wizard-primary'));
+
+		await waitFor(() =>
+			expect(store.verifyModel).toHaveBeenCalledWith({
+				connection: {
+					type: 'googlePalmApi',
+					data: {
+						apiKey: 'AIza-test-key',
+						host: 'https://generativelanguage.googleapis.com',
+					},
+				},
+				modelName: 'gemini-3.1-pro-preview',
+			}),
+		);
+		expect(store.setField).toHaveBeenCalledWith('modelConnection', {
+			type: 'googlePalmApi',
+			data: {
+				apiKey: 'AIza-test-key',
+				host: 'https://generativelanguage.googleapis.com',
+			},
+		});
+		expect(store.setField).toHaveBeenCalledWith('modelName', 'gemini-3.1-pro-preview');
 	});
 
 	it('supports a custom OpenAI-compatible model without an API key', async () => {

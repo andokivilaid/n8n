@@ -28,9 +28,11 @@ const MAX_ERROR_MESSAGE_LENGTH = 512;
 
 /**
  * The probe only needs the call to succeed, not its text, but OpenAI's
- * Responses API rejects `max_output_tokens` below 16.
+ * Responses API rejects `max_output_tokens` below 16, and Gemini Pro thinking
+ * models count thinking tokens toward `maxOutputTokens` (minimum budget 128).
  */
 const VERIFICATION_MAX_OUTPUT_TOKENS = 16;
+const VERIFICATION_GOOGLE_MAX_OUTPUT_TOKENS = 256;
 
 /**
  * Providers can echo credentials back in error messages. Scrub known secret
@@ -139,7 +141,10 @@ export class InstanceAiVerificationService {
 			await generateText({
 				model: createModel(modelConfig, createAiProxyFetch(this.outboundHttp)),
 				prompt: 'Reply with OK.',
-				maxOutputTokens: VERIFICATION_MAX_OUTPUT_TOKENS,
+				maxOutputTokens:
+					provider === 'google'
+						? VERIFICATION_GOOGLE_MAX_OUTPUT_TOKENS
+						: VERIFICATION_MAX_OUTPUT_TOKENS,
 				abortSignal: AbortSignal.timeout(VERIFICATION_TIMEOUT_MS),
 			});
 			return { ok: true, latencyMs: Math.round(performance.now() - startedAt) };
