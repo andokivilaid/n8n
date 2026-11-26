@@ -7,7 +7,7 @@ import {
 } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
 import { PostHogClient, RoleService, type RoleLoader, TelemetryProxy } from '@n8n/backend-services';
-import { GlobalConfig } from '@n8n/config';
+import { GlobalConfig, isEnterpriseUnlocked } from '@n8n/config';
 import {
 	ProjectRelationRepository,
 	ProjectRepository,
@@ -66,6 +66,7 @@ export class SelfHealingConfigurationService {
 	async isEnabled(): Promise<boolean> {
 		if (!this.globalConfig.instanceAi.workflowSuggestionsEnabled) return false;
 		if (this.globalConfig.deployment.type !== 'cloud') {
+			if (isEnterpriseUnlocked(this.globalConfig.license)) return true;
 			// Self-healing is not available on self-hosted Enterprise yet.
 			// Other self-hosted instances have no PostHog flag and use the env setting only.
 			return !this.license.isEnterprisePlan();

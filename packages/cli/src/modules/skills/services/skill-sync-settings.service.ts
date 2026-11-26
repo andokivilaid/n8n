@@ -1,5 +1,5 @@
 import { LicenseState } from '@n8n/backend-common';
-import { InstanceSettingsLoaderConfig } from '@n8n/config';
+import { InstanceSettingsLoaderConfig, isEnterpriseUnlocked, LicenseConfig } from '@n8n/config';
 import { SettingsRepository, TransactionRunner } from '@n8n/db';
 import { Service } from '@n8n/di';
 
@@ -17,6 +17,7 @@ export class SkillSyncSettingsService {
 		private readonly settingsRepository: SettingsRepository,
 		private readonly sourceRepository: SkillSourceRepository,
 		private readonly txRunner: TransactionRunner,
+		private readonly licenseConfig: LicenseConfig = new LicenseConfig(),
 	) {}
 
 	get isManagedByEnv(): boolean {
@@ -25,7 +26,10 @@ export class SkillSyncSettingsService {
 
 	isEnabled(): boolean {
 		if (this.isManagedByEnv) return this.loaderConfig.skillSyncEnabled;
-		return this.savedEnabled ?? !this.licenseState.isEnterprisePlan();
+		return (
+			this.savedEnabled ??
+			(isEnterpriseUnlocked(this.licenseConfig) || !this.licenseState.isEnterprisePlan())
+		);
 	}
 
 	async init(): Promise<void> {

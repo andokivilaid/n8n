@@ -1,5 +1,5 @@
 import type { LicenseState } from '@n8n/backend-common';
-import { InstanceSettingsLoaderConfig } from '@n8n/config';
+import { InstanceSettingsLoaderConfig, LicenseConfig } from '@n8n/config';
 import type { OperationContext, Settings, SettingsRepository, TransactionRunner } from '@n8n/db';
 import { mock } from 'vitest-mock-extended';
 
@@ -146,5 +146,30 @@ describe('SkillSyncSettingsService', () => {
 
 		expect(settingsRepository.upsertByKey).toHaveBeenCalledWith(KEY, 'false', true, {});
 		expect(service.isEnabled()).toBe(false);
+	});
+
+	it('defaults to enabled when N8N_LICENSE_UNLOCK_ENTERPRISE is enabled and nothing is saved', async () => {
+		const config = new InstanceSettingsLoaderConfig();
+		const licenseState = mock<LicenseState>();
+		licenseState.isEnterprisePlan.mockReturnValue(true);
+		const settingsRepository = mock<SettingsRepository>();
+		settingsRepository.findByKeyInContext.mockResolvedValue(null);
+		const sourceRepository = mock<SkillSourceRepository>();
+		sourceRepository.hasAnySource.mockResolvedValue(false);
+		const txRunner = mock<TransactionRunner>();
+		const licenseConfig = new LicenseConfig();
+		licenseConfig.unlockEnterprise = true;
+
+		const service = new SkillSyncSettingsService(
+			config,
+			licenseState,
+			settingsRepository,
+			sourceRepository,
+			txRunner,
+			licenseConfig,
+		);
+		await service.init();
+
+		expect(service.isEnabled()).toBe(true);
 	});
 });

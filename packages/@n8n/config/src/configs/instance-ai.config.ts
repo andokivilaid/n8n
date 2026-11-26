@@ -7,6 +7,7 @@ import { concurrencyLimitSchema } from '../schemas';
 const observationLogPlacementSchema = z.enum(['system', 'message']);
 const observationFailurePolicySchema = z.enum(['disableForRun', 'retry']);
 const observationReflectionModeSchema = z.enum(['background', 'afterObserve']);
+const unlockEnterpriseByDefault = () => process.env.N8N_LICENSE_UNLOCK_ENTERPRISE === 'true';
 
 @Config
 export class InstanceAiConfig {
@@ -22,7 +23,7 @@ export class InstanceAiConfig {
 	 * Enable workflow suggestions, self-healing investigations, and result review.
 	 */
 	@Env('N8N_INSTANCE_AI_WORKFLOW_SUGGESTIONS_ENABLED')
-	workflowSuggestionsEnabled: boolean = false;
+	workflowSuggestionsEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Whether n8n runs the n8n Assistant on the agents runtime as well. This is an
@@ -304,7 +305,7 @@ export class InstanceAiConfig {
 	 * `false` falls back to PostHog.
 	 */
 	@Env('N8N_INSTANCE_AI_NODE_CONTEXT_ENABLED')
-	canvasNodeContextEnabled: boolean = false;
+	canvasNodeContextEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Pin every Instance AI run on this instance to one published prompt profile
@@ -329,7 +330,7 @@ export class InstanceAiConfig {
 	 * with any other context surface, so a measurement can tell which one moved a result.
 	 */
 	@Env('N8N_INSTANCE_AI_NODE_USAGE_ENABLED')
-	nodeUsageEnabled: boolean = false;
+	nodeUsageEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Force-enable folder exploration in Instance AI: folder attribution and
@@ -338,7 +339,7 @@ export class InstanceAiConfig {
 	 * to PostHog.
 	 */
 	@Env('N8N_INSTANCE_AI_FOLDER_EXPLORATION_ENABLED')
-	folderExplorationEnabled: boolean = false;
+	folderExplorationEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Max orchestrator runs executing concurrently on this process. A new user turn over

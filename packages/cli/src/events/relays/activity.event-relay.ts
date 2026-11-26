@@ -1,7 +1,7 @@
 import { Logger } from '@n8n/backend-common';
 import { INSTANCE_ACTIVITY_CONTEXT_FLAG } from '@n8n/api-types';
 import { EventService, PostHogClient, EventRelay } from '@n8n/backend-services';
-import { GlobalConfig } from '@n8n/config';
+import { GlobalConfig, isEnterpriseUnlocked } from '@n8n/config';
 import {
 	activityDataMaxLength,
 	ActivityEventRepository,
@@ -87,7 +87,8 @@ export class ActivityEventRelay extends EventRelay {
 	private overrideEnablesFlag(): boolean {
 		const override = this.globalConfig.featureFlags.override[INSTANCE_ACTIVITY_CONTEXT_FLAG];
 		const value = typeof override === 'object' ? override.value : override;
-		return value === true;
+		if (value !== undefined) return value === true;
+		return isEnterpriseUnlocked(this.globalConfig.license);
 	}
 
 	/** The active instance gate check. All events in a burst share it. */

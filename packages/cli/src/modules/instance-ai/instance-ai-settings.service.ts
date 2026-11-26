@@ -21,7 +21,7 @@ import type {
 	InstanceAiSetupState,
 } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
-import { GlobalConfig } from '@n8n/config';
+import { GlobalConfig, isEnterpriseUnlocked } from '@n8n/config';
 import type { InstanceAiConfig, DeploymentConfig } from '@n8n/config';
 import { DbLock, DbLockService, SettingsRepository } from '@n8n/db';
 import type { CredentialsEntity, ICredentialsDb, OperationContext, User } from '@n8n/db';
@@ -320,6 +320,8 @@ export class InstanceAiSettingsService {
 
 	private readonly environmentN8nSandboxServiceUrl: string;
 
+	private readonly licenseConfig: GlobalConfig['license'] | undefined;
+
 	constructor(
 		globalConfig: GlobalConfig,
 		private readonly dbLockService: DbLockService,
@@ -336,6 +338,7 @@ export class InstanceAiSettingsService {
 	) {
 		this.config = globalConfig.instanceAi;
 		this.deploymentConfig = globalConfig.deployment;
+		this.licenseConfig = globalConfig.license;
 		this.environmentSandboxProvider = this.sandboxSettingsService.getProvider();
 		this.environmentN8nSandboxServiceUrl = this.config.n8nSandboxServiceUrl;
 	}
@@ -1294,7 +1297,11 @@ export class InstanceAiSettingsService {
 	/** Whether Instance AI chat and main UI are enabled (settings always available when module loads). */
 	isInstanceAiEnabled(): boolean {
 		// Resolved on every read because the license plan can change at runtime.
-		return this.enabled ?? this.config.enabled ?? !this.license.isEnterprisePlan();
+		return (
+			this.enabled ??
+			this.config.enabled ??
+			(isEnterpriseUnlocked(this.licenseConfig) || !this.license.isEnterprisePlan())
+		);
 	}
 
 	/** Public, detail-free setup state used to gate member-facing entry points. */

@@ -824,6 +824,32 @@ describe('PostHog', () => {
 					'104_canvas_aia_node_context': true,
 				});
 			});
+
+			it('seeds self-hosted feature flags when N8N_LICENSE_UNLOCK_ENTERPRISE is enabled while still allowing explicit overrides', async () => {
+				(PostHog.prototype.evaluateFlags as Mock).mockResolvedValue(mockEvaluatedFlags({}));
+				globalConfig.license.unlockEnterprise = true;
+				globalConfig.featureFlags.override = {
+					[ASSISTANT_SKILLS_FLAG]: false,
+				};
+
+				try {
+					const ph = new PostHogClient(instanceSettings, globalConfig);
+					await ph.init();
+
+					const flags = await ph.getFeatureFlags({ id: userId, createdAt });
+
+					expect(flags[ASSISTANT_SKILLS_FLAG]).toBe(false);
+					expect(flags[SELF_HEALING_FLAG]).toBe(true);
+					expect(flags[KNOWLEDGE_COLLECTIONS_FLAG]).toBe(true);
+					expect(flags[AGENT_SANDBOX_FILES_FLAG]).toBe(true);
+					expect(flags[WORKFLOWS_IN_SKILLS_FLAG]).toBe('variant');
+					expect(flags[INSTANCE_AI_CLOUD_BROWSER_FLAG]).toBe(false);
+					expect(flags['136_skill_sync']).toBe(true);
+					expect(flags['144_instance_ai_approval_modes']).toBe(true);
+				} finally {
+					globalConfig.license.unlockEnterprise = false;
+				}
+			});
 		});
 	});
 

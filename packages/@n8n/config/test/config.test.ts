@@ -577,6 +577,7 @@ describe('GlobalConfig', () => {
 			activationKey: '',
 			tenantId: 1,
 			cert: '',
+			unlockEnterprise: false,
 		},
 		security: {
 			restrictFileAccessTo: '~/.n8n-files',
@@ -1358,5 +1359,30 @@ describe('GlobalConfig', () => {
 			const config = Container.get(GlobalConfig);
 			expect(config.endpoints.health).toEqual('/api/v1/health');
 		});
+	});
+
+	it('unlocks default AI, agent, evaluation, and canvas group flags when N8N_LICENSE_UNLOCK_ENTERPRISE is true while keeping explicit env overrides', () => {
+		process.env = {
+			N8N_LICENSE_UNLOCK_ENTERPRISE: 'true',
+			N8N_INSTANCE_AI_WORKFLOW_SUGGESTIONS_ENABLED: 'false',
+		};
+
+		const config = Container.get(GlobalConfig);
+		expect(config.license.unlockEnterprise).toBe(true);
+		expect(config.instanceAi.workflowSuggestionsEnabled).toBe(false);
+		expect(config.instanceAi.canvasNodeContextEnabled).toBe(true);
+		expect(config.instanceAi.nodeUsageEnabled).toBe(true);
+		expect(config.instanceAi.folderExplorationEnabled).toBe(true);
+		expect(config.agents.planToolsEnabled).toBe(true);
+		expect(config.agents.humanReviewEnabled).toBe(true);
+		expect(config.agents.backgroundTasksEnabled).toBe(true);
+		expect(config.agents.serviceAccountsEnabled).toBe(true);
+		expect(config.agents.sandboxEnabled).toBe(true);
+		expect(config.agents.sandboxEgressPolicy).toBe('opt-out');
+		expect(config.evaluation.collectionsEnabled).toBe(true);
+		expect(config.evaluation.configEvalsEnabled).toBe(true);
+		expect(config.evaluation.agentEvalsEnabled).toBe(true);
+		expect(config.workflows.groupsWithTriggersEnabled).toBe(true);
+		expect(config.workflows.groupsWithManyBoundariesEnabled).toBe(true);
 	});
 });

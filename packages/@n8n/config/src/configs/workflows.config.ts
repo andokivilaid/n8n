@@ -9,6 +9,7 @@ type CallerPolicy = z.infer<typeof callerPolicySchema>;
 
 // Bounded so lease-derived timeouts stay far below Node's max timer delay (~24.8 days).
 const outboxLeaseSecondsSchema = positiveIntSchema.max(Time.days.toSeconds);
+const unlockEnterpriseByDefault = () => process.env.N8N_LICENSE_UNLOCK_ENTERPRISE === 'true';
 
 @Config
 export class WorkflowsConfig {
@@ -73,9 +74,9 @@ export class WorkflowsConfig {
 
 	/** Force-enables groups that hold a trigger. `false` falls back to PostHog. */
 	@Env('N8N_WORKFLOWS_GROUPS_WITH_TRIGGERS_ENABLED')
-	groupsWithTriggersEnabled: boolean = false;
+	groupsWithTriggersEnabled: boolean = unlockEnterpriseByDefault();
 
 	/** Force-enables groups with several entry and exit nodes. `false` falls back to PostHog. */
 	@Env('N8N_WORKFLOWS_GROUPS_WITH_MANY_BOUNDARIES_ENABLED')
-	groupsWithManyBoundariesEnabled: boolean = false;
+	groupsWithManyBoundariesEnabled: boolean = unlockEnterpriseByDefault();
 }

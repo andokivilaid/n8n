@@ -34,3 +34,7 @@ export class LicenseConfig {
 	@Env('N8N_LICENSE_UNLOCK_ENTERPRISE')
 	unlockEnterprise: boolean = false;
 }
+
+export function isEnterpriseUnlocked(license: { unlockEnterprise?: unknown } | undefined): boolean {
+	return license?.unlockEnterprise === true;
+}

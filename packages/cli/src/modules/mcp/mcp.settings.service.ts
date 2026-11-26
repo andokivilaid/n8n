@@ -1,5 +1,5 @@
 import { Logger } from '@n8n/backend-common';
-import { GlobalConfig } from '@n8n/config';
+import { GlobalConfig, isEnterpriseUnlocked } from '@n8n/config';
 import {
 	SettingsRepository,
 	WorkflowEntity,
@@ -145,7 +145,9 @@ export class McpSettingsService {
 
 	async getPreferencesEnabled(): Promise<boolean> {
 		const row = await this.settingsRepository.findByKey(PREFERENCES_ENABLED_KEY);
-		return row ? row.value === 'true' : !this.license.isEnterprisePlan();
+		return row
+			? row.value === 'true'
+			: isEnterpriseUnlocked(this.globalConfig.license) || !this.license.isEnterprisePlan();
 	}
 
 	async setPreferencesEnabled(enabled: boolean): Promise<void> {

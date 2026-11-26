@@ -1,5 +1,7 @@
 import { Config, Env } from '../decorators';
 
+const unlockEnterpriseByDefault = () => process.env.N8N_LICENSE_UNLOCK_ENTERPRISE === 'true';
+
 @Config
 export class EvaluationConfig {
 	/**
@@ -21,7 +23,7 @@ export class EvaluationConfig {
 	 * not a kill-switch. Use PostHog itself to disable a rolled-out flag.
 	 */
 	@Env('N8N_EVAL_COLLECTIONS_ENABLED')
-	collectionsEnabled: boolean = false;
+	collectionsEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Force-enable the config-based evals surface (in-editor Tests panel + the
@@ -31,7 +33,7 @@ export class EvaluationConfig {
 	 * force-disable — a `false` value just defers to PostHog.
 	 */
 	@Env('N8N_CONFIG_EVALS_ENABLED')
-	configEvalsEnabled: boolean = false;
+	configEvalsEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Force-enable the agent-evals feature surface.
@@ -50,7 +52,7 @@ export class EvaluationConfig {
 	 * not a kill-switch. Use PostHog itself to disable a rolled-out flag.
 	 */
 	@Env('N8N_AGENT_EVALS_ENABLED')
-	agentEvalsEnabled: boolean = false;
+	agentEvalsEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Force `isAgentWorthTesting()` to always resolve `true`, skipping the

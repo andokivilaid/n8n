@@ -38,10 +38,12 @@ class AgentsModuleArray extends CommaSeparatedStringArray<AgentsModuleName> {
 	}
 }
 
+const unlockEnterpriseByDefault = () => process.env.N8N_LICENSE_UNLOCK_ENTERPRISE === 'true';
+
 @Config
 export class AgentsConfig {
 	@Env('N8N_AGENTS_PLAN_TOOLS_ENABLED')
-	planToolsEnabled: boolean = false;
+	planToolsEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Time in seconds to retain Agent checkpoints. Pending human review requests
@@ -81,7 +83,9 @@ export class AgentsConfig {
 	 * keeps these features off, and n8n rejects unknown feature names at startup.
 	 */
 	@Env('N8N_AGENTS_MODULES')
-	modules: AgentsModuleArray = [];
+	modules: AgentsModuleArray = unlockEnterpriseByDefault()
+		? new AgentsModuleArray(HUMAN_REVIEW_MODULE)
+		: [];
 
 	get humanReviewEnabled(): boolean {
 		return this.modules.includes(HUMAN_REVIEW_MODULE);
@@ -93,7 +97,7 @@ export class AgentsConfig {
 	 * set to the same value on mains and workers — workers settle workflow jobs.
 	 */
 	@Env('N8N_AGENTS_BACKGROUND_TASKS_ENABLED')
-	backgroundTasksEnabled: boolean = false;
+	backgroundTasksEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Whether users can share credentials and other resources with agents, and
@@ -101,18 +105,20 @@ export class AgentsConfig {
 	 * either way. Set the same value on every main instance.
 	 */
 	@Env('N8N_AGENTS_SERVICE_ACCOUNTS_ENABLED')
-	serviceAccountsEnabled: boolean = false;
+	serviceAccountsEnabled: boolean = unlockEnterpriseByDefault();
 
 	/** Enable sandbox-backed agent knowledge base operations. */
 	@Env('N8N_AGENTS_AI_SANDBOX_ENABLED')
-	sandboxEnabled: boolean = false;
+	sandboxEnabled: boolean = unlockEnterpriseByDefault();
 
 	/**
 	 * Outbound internet access policy for Agent sandboxes. One of `disabled`, `opt-in`, or `opt-out`.
 	 * Use `disabled` to block outbound internet access for all Agent sandboxes, `opt-in` to require enabling it per Agent in Advanced settings, or `opt-out` to allow it by default. Doesn't affect n8n Assistant.
 	 */
 	@Env('N8N_AGENTS_AI_SANDBOX_EGRESS_POLICY', agentSandboxEgressPolicySchema)
-	sandboxEgressPolicy: AgentSandboxEgressPolicy = 'opt-in';
+	sandboxEgressPolicy: AgentSandboxEgressPolicy = unlockEnterpriseByDefault()
+		? 'opt-out'
+		: 'opt-in';
 
 	/** Docker image for the Daytona sandbox (default: daytonaio/sandbox:0.5.0). */
 	@Env('N8N_AGENTS_AI_SANDBOX_IMAGE')
