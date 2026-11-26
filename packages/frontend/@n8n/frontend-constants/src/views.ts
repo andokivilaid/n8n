@@ -32,6 +32,7 @@ export enum VIEWS {
 	WORKFLOW = 'NodeViewExisting',
 	DEMO = 'WorkflowDemo',
 	DEMO_DIFF = 'WorkflowDemoDiff',
+	PUBLIC_WORKFLOW = 'PublicWorkflowView',
 	TEMPLATE_IMPORT = 'WorkflowTemplate',
 	WORKFLOW_ONBOARDING = 'WorkflowOnboarding',
 	SIGNIN = 'SigninView',

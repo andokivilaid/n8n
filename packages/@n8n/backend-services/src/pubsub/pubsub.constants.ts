@@ -71,5 +71,7 @@ export const IMMEDIATE_COMMANDS = new Set<PubSub.Command['command']>([
 	'display-workflow-publication-status',
 	'workflow-publish-wake-up',
 	'reload-public-api-rate-limit-settings',
+	'reload-public-canvas-shares',
+	'relay-public-canvas-event',
 	'promotion-environment-changed',
 ]);

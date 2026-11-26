@@ -50,6 +50,11 @@ export type PubSubCommandMap = {
 	'reload-mcp-registry': never;
 
 	'reload-otel-config': never;
+	'reload-public-canvas-shares': never;
+	'relay-public-canvas-event': {
+		workflowId: string;
+		event: import('@n8n/api-types').PublicCanvasPushEvent;
+	};
 	'reload-public-api-rate-limit-settings': never;
 	'reload-instance-ai-settings': never;
 	'self-healing-failure': {

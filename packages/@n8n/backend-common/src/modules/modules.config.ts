@@ -52,6 +52,7 @@ export const MODULE_NAMES = [
 	'execution-limits',
 	'execution-ledger',
 	'durable-leases',
+	'public-canvas',
 ] as const;
 
 export type ModuleName = (typeof MODULE_NAMES)[number];

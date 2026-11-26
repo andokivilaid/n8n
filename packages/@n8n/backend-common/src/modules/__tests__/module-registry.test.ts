@@ -184,6 +184,7 @@ describe('eligibleModules', () => {
 			'agent-evals',
 			'scim',
 			'type-availability-policies',
+			'public-canvas',
 		]);
 	});
 
@@ -233,6 +234,7 @@ describe('eligibleModules', () => {
 			'agent-evals',
 			'scim',
 			'type-availability-policies',
+			'public-canvas',
 			'engine-v2',
 		]);
 	});

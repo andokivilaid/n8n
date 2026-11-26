@@ -33,6 +33,7 @@ import {
 import { I18nT } from 'vue-i18n';
 
 import { N8nButton, N8nInfoTip, N8nText } from '@n8n/design-system';
+import PublicLiveCanvasSection from '@/features/workflows/publicCanvas/components/PublicLiveCanvasSection.vue';
 const props = defineProps<{
 	data: {
 		id: string;
@@ -240,6 +241,25 @@ const onCloseModal = async () => {
 	return true;
 };
 
+const ensureSavedForPublicCanvas = async () => {
+	let savedId = workflowId.value;
+	if (!workflowsStore.isWorkflowSaved[savedId]) {
+		const parentFolderId = route.query.folderId as string | undefined;
+		const createdId = await workflowSaving.saveAsNewWorkflow({ parentFolderId });
+		if (!createdId) {
+			throw new Error(i18n.baseText('workflows.shareModal.onSave.error.title'));
+		}
+		savedId = createdId;
+		await workflowsListStore.fetchWorkflow(savedId);
+	}
+	const resolvedProjectId =
+		workflowsListStore.workflowsById[savedId]?.homeProject?.id ??
+		workflowHomeProject.value?.id ??
+		projectsStore.personalProject?.id ??
+		'';
+	return { workflowId: savedId, projectId: resolvedProjectId };
+};
+
 const goToUpgrade = () => {
 	void pageRedirectionHelper.goToUpgrade('workflow_sharing', 'upgrade-workflow-sharing');
 };
@@ -361,6 +381,14 @@ watch(
 						</N8nText>
 					</template>
 				</EnterpriseEdition>
+				<PublicLiveCanvasSection
+					v-if="workflowHomeProject?.id || projectsStore.personalProject?.id"
+					:project-id="workflowHomeProject?.id ?? projectsStore.personalProject?.id ?? ''"
+					:workflow-id="workflowId"
+					:is-workflow-saved="Boolean(workflowsStore.isWorkflowSaved[workflowId])"
+					:can-update="Boolean(workflowPermissions.update)"
+					:ensure-workflow-saved="ensureSavedForPublicCanvas"
+				/>
 			</div>
 		</template>
 

@@ -84,6 +84,7 @@ useMcpDiscoveryEnrollment();
 const loading = ref(true);
 const defaultLocale = computed(() => rootStore.defaultLocale);
 const isDemoMode = computed(() => route.name === VIEWS.DEMO);
+const isPublicWorkflowMode = computed(() => route.name === VIEWS.PUBLIC_WORKFLOW);
 const hasContentFooter = ref(false);
 
 useTelemetryContext({
@@ -146,15 +147,15 @@ useExposeCssVar('--ask-assistant--floating-button--margin-bottom', askAiFloating
 		<AppLayout @mounted="setLayoutRef">
 			<RouterView />
 		</AppLayout>
-		<AppModals />
-		<AppCommandBar />
+		<AppModals v-if="!isPublicWorkflowMode" />
+		<AppCommandBar v-if="!isPublicWorkflowMode" />
 		<template #overlays>
 			<div :id="CODEMIRROR_TOOLTIP_CONTAINER_ELEMENT_ID" />
 			<E2ETestModeMarker />
-			<WorkflowErrorNudge />
+			<WorkflowErrorNudge v-if="!isPublicWorkflowMode" />
 		</template>
 		<template #aside>
-			<AppChatPanel v-if="layoutRef" :layout-ref="layoutRef" />
+			<AppChatPanel v-if="layoutRef && !isPublicWorkflowMode" :layout-ref="layoutRef" />
 		</template>
 	</BaseLayout>
 </template>

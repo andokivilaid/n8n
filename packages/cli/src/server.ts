@@ -548,6 +548,9 @@ export class Server extends AbstractServer {
 					const nonce = res.locals.cspNonce;
 					const settingsScript = await embeddedSettingsScript(nonce);
 					securityHeadersMiddleware(req, res, () => {
+						if (req.path.startsWith('/public/workflow/')) {
+							res.removeHeader('X-Frame-Options');
+						}
 						const page = template.join(nonce);
 						res
 							.type('html')

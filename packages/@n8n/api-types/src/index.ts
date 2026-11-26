@@ -1177,3 +1177,16 @@ export type {
 	ToolTestCapability,
 	AgentTestRunToolsResponse,
 } from './schemas/agent-safe-testing.schema';
+
+export {
+	UpdatePublicCanvasShareDto,
+	updatePublicCanvasShareSchema,
+	type PublicCanvasActiveRunSnapshot,
+	type PublicCanvasCompletedNodeState,
+	type PublicCanvasPushEvent,
+	type PublicCanvasShareStatusDto,
+	type PublicCanvasWorkflowGroup,
+	type PublicCanvasWorkflowNode,
+	type PublicCanvasWorkflowPayload,
+	type PublicCanvasWorkflowResponse,
+} from './public-canvas';

@@ -495,6 +495,18 @@ export const routes: RouteRecordRaw[] = [
 		},
 	},
 	{
+		path: '/public/workflow/:shareToken',
+		name: VIEWS.PUBLIC_WORKFLOW,
+		component: async () =>
+			await import('@/features/workflows/publicCanvas/views/PublicWorkflowView.vue'),
+		meta: {
+			layout: 'auth',
+			telemetry: {
+				disabled: true,
+			},
+		},
+	},
+	{
 		path: '/workflow/:workflowId/:nodeId?',
 		name: VIEWS.WORKFLOW,
 		component: NodeView,
