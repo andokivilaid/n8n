@@ -52,11 +52,16 @@ import { License } from '@/license';
 import { AiService } from '@/services/ai.service';
 import {
 	INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
+	INSTANCE_AI_E2B_CREDENTIAL_POLICY,
 	INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
 	SandboxSettingsService,
 } from '@/services/sandbox-settings.service';
 
-export { INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY, INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY };
+export {
+	INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
+	INSTANCE_AI_E2B_CREDENTIAL_POLICY,
+	INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
+};
 
 import { InstanceAiCloudBrowserService } from './browser/instance-ai-cloud-browser.service';
 import { withModelName } from './model-config-name';
@@ -224,6 +229,8 @@ function validateInstanceAiCredential(
 		validateModelCredential(credential);
 	} else if (policy === INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY) {
 		INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY.validate?.(credential);
+	} else if (policy === INSTANCE_AI_E2B_CREDENTIAL_POLICY) {
+		INSTANCE_AI_E2B_CREDENTIAL_POLICY.validate?.(credential);
 	} else if (policy === INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY) {
 		INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY.validate?.(credential);
 	} else if (policy === INSTANCE_AI_SEARCH_CREDENTIAL_POLICY) {
@@ -276,6 +283,7 @@ export interface AdminModelSelection {
 
 export interface AdminCredentialSelection extends AdminModelSelection {
 	daytonaCredentialId: string | null;
+	e2bCredentialId: string | null;
 	n8nSandboxCredentialId: string | null;
 	searchCredentialId: string | null;
 }
@@ -408,6 +416,7 @@ export class InstanceAiSettingsService {
 				modelCredentialId: null,
 				modelName: null,
 				daytonaCredentialId: null,
+				e2bCredentialId: null,
 				n8nSandboxCredentialId: null,
 				searchCredentialId: null,
 			});
@@ -420,25 +429,31 @@ export class InstanceAiSettingsService {
 				modelCredentialId: null,
 				modelName: null,
 				daytonaCredentialId: null,
+				e2bCredentialId: null,
 				n8nSandboxCredentialId,
 				searchCredentialId: null,
 			});
 		}
 
-		const [modelSelection, daytonaCredentialId, n8nSandboxCredentialId, searchCredentialId] =
-			await Promise.all([
-				this.readAdminModelSelection(),
-				this.instanceCredentialBroker.getAssignedCredentialId(
-					INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
-				),
-				this.instanceCredentialBroker.getAssignedCredentialId(
-					INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
-				),
-				this.instanceCredentialBroker.getAssignedCredentialId(INSTANCE_AI_SEARCH_CREDENTIAL_POLICY),
-			]);
+		const [
+			modelSelection,
+			daytonaCredentialId,
+			e2bCredentialId,
+			n8nSandboxCredentialId,
+			searchCredentialId,
+		] = await Promise.all([
+			this.readAdminModelSelection(),
+			this.instanceCredentialBroker.getAssignedCredentialId(INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY),
+			this.instanceCredentialBroker.getAssignedCredentialId(INSTANCE_AI_E2B_CREDENTIAL_POLICY),
+			this.instanceCredentialBroker.getAssignedCredentialId(
+				INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
+			),
+			this.instanceCredentialBroker.getAssignedCredentialId(INSTANCE_AI_SEARCH_CREDENTIAL_POLICY),
+		]);
 		return this.buildAdminSettingsResponse({
 			...modelSelection,
 			daytonaCredentialId,
+			e2bCredentialId,
 			n8nSandboxCredentialId,
 			searchCredentialId,
 		});
@@ -481,6 +496,10 @@ export class InstanceAiSettingsService {
 				isManaged || (directEnvironmentConfig && sandboxEnvConfigured)
 					? null
 					: credentialSelection.daytonaCredentialId,
+			e2bCredentialId:
+				isManaged || (directEnvironmentConfig && sandboxEnvConfigured)
+					? null
+					: credentialSelection.e2bCredentialId,
 			n8nSandboxCredentialId:
 				this.isCloud || (directEnvironmentConfig && sandboxEnvConfigured)
 					? null
@@ -514,7 +533,9 @@ export class InstanceAiSettingsService {
 					apiKey:
 						sandboxProvider === 'daytona'
 							? Boolean(c.daytonaApiKey.trim())
-							: Boolean(c.n8nSandboxServiceApiKey.trim()),
+							: sandboxProvider === 'e2b'
+								? Boolean(c.e2bApiKey.trim())
+								: Boolean(c.n8nSandboxServiceApiKey.trim()),
 				},
 				search: {
 					provider: Boolean(c.braveSearchApiKey.trim() || c.searxngUrl.trim()),
@@ -568,7 +589,13 @@ export class InstanceAiSettingsService {
 			if (update.daytonaCredentialId !== null) {
 				this.rejectManagedFields(update, ['daytonaCredentialId'], this.deploymentLabel());
 			}
-			if (update.sandboxConnection?.type === 'daytonaApi') {
+			if (update.e2bCredentialId !== null) {
+				this.rejectManagedFields(update, ['e2bCredentialId'], this.deploymentLabel());
+			}
+			if (
+				update.sandboxConnection?.type === 'daytonaApi' ||
+				update.sandboxConnection?.type === 'e2bApi'
+			) {
 				this.rejectManagedFields(update, ['sandboxConnection'], this.deploymentLabel());
 			}
 		}
@@ -578,6 +605,7 @@ export class InstanceAiSettingsService {
 		const {
 			modelCredentialId: initialModelCredentialId,
 			daytonaCredentialId: initialDaytonaCredentialId,
+			e2bCredentialId: initialE2bCredentialId,
 			n8nSandboxCredentialId: initialN8nSandboxCredentialId,
 			searchCredentialId: initialSearchCredentialId,
 			modelConnection,
@@ -587,6 +615,7 @@ export class InstanceAiSettingsService {
 		} = update;
 		let modelCredentialId = initialModelCredentialId;
 		let daytonaCredentialId = initialDaytonaCredentialId;
+		let e2bCredentialId = initialE2bCredentialId;
 		let n8nSandboxCredentialId = initialN8nSandboxCredentialId;
 		let searchCredentialId = initialSearchCredentialId;
 		if (settingsUpdate.searchDisabled === true) {
@@ -643,9 +672,11 @@ export class InstanceAiSettingsService {
 				? this.environmentSandboxProvider
 				: sandboxConnection?.type === 'daytonaApi'
 					? 'daytona'
-					: sandboxConnection?.type === 'httpHeaderAuth'
-						? 'n8n-sandbox'
-						: settingsUpdate.sandboxProvider,
+					: sandboxConnection?.type === 'e2bApi'
+						? 'e2b'
+						: sandboxConnection?.type === 'httpHeaderAuth'
+							? 'n8n-sandbox'
+							: settingsUpdate.sandboxProvider,
 		);
 		await this.runConnectionHooks([modelPrepared, searchPrepared, sandboxPrepared]);
 		const { previous, next, credentialSelection, previousSelection } =
@@ -678,6 +709,7 @@ export class InstanceAiSettingsService {
 						sandboxPrepared,
 					);
 					daytonaCredentialId = sandbox.daytonaCredentialId;
+					e2bCredentialId = sandbox.e2bCredentialId;
 					n8nSandboxCredentialId = sandbox.n8nSandboxCredentialId;
 					if (sandbox.sandboxProvider) settingsUpdate.sandboxProvider = sandbox.sandboxProvider;
 				}
@@ -701,6 +733,7 @@ export class InstanceAiSettingsService {
 				const [
 					currentModelCredentialId,
 					currentDaytonaCredentialId,
+					currentE2bCredentialId,
 					currentN8nCredentialId,
 					currentSearchCredentialId,
 				] = await Promise.all([
@@ -710,6 +743,10 @@ export class InstanceAiSettingsService {
 					),
 					this.instanceCredentialBroker.getAssignedCredentialId(
 						INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
+						ctx,
+					),
+					this.instanceCredentialBroker.getAssignedCredentialId(
+						INSTANCE_AI_E2B_CREDENTIAL_POLICY,
 						ctx,
 					),
 					this.instanceCredentialBroker.getAssignedCredentialId(
@@ -723,6 +760,8 @@ export class InstanceAiSettingsService {
 				]);
 				const nextDaytonaCredentialId =
 					daytonaCredentialId === undefined ? currentDaytonaCredentialId : daytonaCredentialId;
+				const nextE2bCredentialId =
+					e2bCredentialId === undefined ? currentE2bCredentialId : e2bCredentialId;
 				const nextN8nCredentialId =
 					n8nSandboxCredentialId === undefined ? currentN8nCredentialId : n8nSandboxCredentialId;
 				const nextSearchCredentialId =
@@ -730,14 +769,19 @@ export class InstanceAiSettingsService {
 				const clearsSandboxConnection =
 					(sandboxConnection !== undefined ||
 						daytonaCredentialId !== undefined ||
+						e2bCredentialId !== undefined ||
 						n8nSandboxCredentialId !== undefined) &&
 					nextDaytonaCredentialId === null &&
+					nextE2bCredentialId === null &&
 					nextN8nCredentialId === null;
 				const assignsSandboxConnection =
 					(sandboxConnection !== undefined ||
 						daytonaCredentialId !== undefined ||
+						e2bCredentialId !== undefined ||
 						n8nSandboxCredentialId !== undefined) &&
-					(nextDaytonaCredentialId !== null || nextN8nCredentialId !== null);
+					(nextDaytonaCredentialId !== null ||
+						nextE2bCredentialId !== null ||
+						nextN8nCredentialId !== null);
 				if (assignsSandboxConnection) settingsUpdate.sandboxEnabled = true;
 				this.validateAdminSettingsUpdate(
 					settingsUpdate,
@@ -778,6 +822,7 @@ export class InstanceAiSettingsService {
 					INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
 					daytonaCredentialId,
 				);
+				await updateCredentialAssignment(INSTANCE_AI_E2B_CREDENTIAL_POLICY, e2bCredentialId);
 				await updateCredentialAssignment(
 					INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
 					n8nSandboxCredentialId,
@@ -788,6 +833,9 @@ export class InstanceAiSettingsService {
 				}
 				if (typeof daytonaCredentialId === 'string') {
 					await this.validateAssignedServiceCredential(INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY, ctx);
+				}
+				if (typeof e2bCredentialId === 'string') {
+					await this.validateAssignedServiceCredential(INSTANCE_AI_E2B_CREDENTIAL_POLICY, ctx);
 				}
 				if (typeof n8nSandboxCredentialId === 'string') {
 					await this.validateAssignedServiceCredential(
@@ -811,6 +859,7 @@ export class InstanceAiSettingsService {
 						modelCredentialId: nextModelCredentialId ?? null,
 						modelName: next.modelName ?? null,
 						daytonaCredentialId: nextDaytonaCredentialId,
+						e2bCredentialId: nextE2bCredentialId,
 						n8nSandboxCredentialId: nextN8nCredentialId,
 						searchCredentialId: nextSearchCredentialId,
 					} satisfies AdminCredentialSelection,
@@ -818,6 +867,7 @@ export class InstanceAiSettingsService {
 						modelCredentialId: currentModelCredentialId,
 						modelName: current.modelName ?? null,
 						daytonaCredentialId: currentDaytonaCredentialId,
+						e2bCredentialId: currentE2bCredentialId,
 						n8nSandboxCredentialId: currentN8nCredentialId,
 						searchCredentialId: currentSearchCredentialId,
 					} satisfies AdminCredentialSelection,
@@ -842,6 +892,7 @@ export class InstanceAiSettingsService {
 		const conflicts: Array<[string, string, boolean]> = [
 			['modelConnection', 'modelCredentialId', update.modelCredentialId !== undefined],
 			['sandboxConnection', 'daytonaCredentialId', update.daytonaCredentialId !== undefined],
+			['sandboxConnection', 'e2bCredentialId', update.e2bCredentialId !== undefined],
 			['sandboxConnection', 'n8nSandboxCredentialId', update.n8nSandboxCredentialId !== undefined],
 			['searchConnection', 'searchCredentialId', update.searchCredentialId !== undefined],
 		];
@@ -971,9 +1022,11 @@ export class InstanceAiSettingsService {
 		const policy =
 			connection.type === 'daytonaApi'
 				? INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY
-				: connection.type === 'httpHeaderAuth'
-					? INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY
-					: undefined;
+				: connection.type === 'e2bApi'
+					? INSTANCE_AI_E2B_CREDENTIAL_POLICY
+					: connection.type === 'httpHeaderAuth'
+						? INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY
+						: undefined;
 		if (!policy) {
 			throw new UnprocessableRequestError(
 				`Connection type "${connection.type}" is not supported for the sandbox`,
@@ -995,7 +1048,7 @@ export class InstanceAiSettingsService {
 		}
 	}
 
-	/** The sandbox connection type picks the provider; the other slot is cleared. */
+	/** The sandbox connection type picks the provider; the other slots are cleared. */
 	private async upsertSandboxConnection(
 		user: User,
 		connection: InstanceAiConnectionUpdate | null,
@@ -1003,6 +1056,7 @@ export class InstanceAiSettingsService {
 		prepared?: PreparedConnection,
 	): Promise<{
 		daytonaCredentialId: string | null;
+		e2bCredentialId: string | null;
 		n8nSandboxCredentialId: string | null;
 		sandboxProvider?: InstanceAiSandboxProvider;
 	}> {
@@ -1012,6 +1066,13 @@ export class InstanceAiSettingsService {
 				daytonaCredentialId: await this.upsertConnection(
 					user,
 					INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
+					name,
+					null,
+					ctx,
+				),
+				e2bCredentialId: await this.upsertConnection(
+					user,
+					INSTANCE_AI_E2B_CREDENTIAL_POLICY,
 					name,
 					null,
 					ctx,
@@ -1035,6 +1096,13 @@ export class InstanceAiSettingsService {
 					ctx,
 					prepared,
 				),
+				e2bCredentialId: await this.upsertConnection(
+					user,
+					INSTANCE_AI_E2B_CREDENTIAL_POLICY,
+					name,
+					null,
+					ctx,
+				),
 				n8nSandboxCredentialId: await this.upsertConnection(
 					user,
 					INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
@@ -1043,6 +1111,33 @@ export class InstanceAiSettingsService {
 					ctx,
 				),
 				sandboxProvider: 'daytona',
+			};
+		}
+		if (connection.type === 'e2bApi') {
+			return {
+				e2bCredentialId: await this.upsertConnection(
+					user,
+					INSTANCE_AI_E2B_CREDENTIAL_POLICY,
+					name,
+					connection,
+					ctx,
+					prepared,
+				),
+				daytonaCredentialId: await this.upsertConnection(
+					user,
+					INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
+					name,
+					null,
+					ctx,
+				),
+				n8nSandboxCredentialId: await this.upsertConnection(
+					user,
+					INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
+					name,
+					null,
+					ctx,
+				),
+				sandboxProvider: 'e2b',
 			};
 		}
 		if (connection.type === 'httpHeaderAuth') {
@@ -1058,6 +1153,13 @@ export class InstanceAiSettingsService {
 				daytonaCredentialId: await this.upsertConnection(
 					user,
 					INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
+					name,
+					null,
+					ctx,
+				),
+				e2bCredentialId: await this.upsertConnection(
+					user,
+					INSTANCE_AI_E2B_CREDENTIAL_POLICY,
 					name,
 					null,
 					ctx,
@@ -1137,6 +1239,7 @@ export class InstanceAiSettingsService {
 			? [INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY]
 			: [
 					INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
+					INSTANCE_AI_E2B_CREDENTIAL_POLICY,
 					INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
 					INSTANCE_AI_SEARCH_CREDENTIAL_POLICY,
 				];
@@ -1165,6 +1268,24 @@ export class InstanceAiSettingsService {
 			return envConfig;
 		}
 		return await this.sandboxSettingsService.resolveDaytonaConfig();
+	}
+
+	async resolveE2bConfig(): Promise<{ apiKey?: string; template?: string; domain?: string }> {
+		const { e2bApiKey, e2bTemplate, e2bDomain } = this.config;
+		const envConfig = {
+			apiKey: e2bApiKey || undefined,
+			template: e2bTemplate || undefined,
+			domain: e2bDomain || undefined,
+		};
+		if (
+			this.aiService.isProxyEnabled() ||
+			(this.isDirectSelfManaged() &&
+				this.environmentSandboxProvider === 'e2b' &&
+				this.hasEnvironmentSandboxConnection())
+		) {
+			return envConfig;
+		}
+		return await this.sandboxSettingsService.resolveE2bConfig();
 	}
 
 	async resolveN8nSandboxConfig(): Promise<{ serviceUrl?: string; apiKey?: string }> {
@@ -1315,20 +1436,25 @@ export class InstanceAiSettingsService {
 
 	/** Setup state of a direct self-managed instance, from the shared derivation. */
 	private async resolveSetupState(): Promise<InstanceAiSetupState> {
-		const [modelSelection, daytonaCredentialId, n8nSandboxCredentialId, searchCredentialId] =
-			await Promise.all([
-				this.readAdminModelSelection(),
-				this.instanceCredentialBroker.getAssignedCredentialId(
-					INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY,
-				),
-				this.instanceCredentialBroker.getAssignedCredentialId(
-					INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
-				),
-				this.instanceCredentialBroker.getAssignedCredentialId(INSTANCE_AI_SEARCH_CREDENTIAL_POLICY),
-			]);
+		const [
+			modelSelection,
+			daytonaCredentialId,
+			e2bCredentialId,
+			n8nSandboxCredentialId,
+			searchCredentialId,
+		] = await Promise.all([
+			this.readAdminModelSelection(),
+			this.instanceCredentialBroker.getAssignedCredentialId(INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY),
+			this.instanceCredentialBroker.getAssignedCredentialId(INSTANCE_AI_E2B_CREDENTIAL_POLICY),
+			this.instanceCredentialBroker.getAssignedCredentialId(
+				INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY,
+			),
+			this.instanceCredentialBroker.getAssignedCredentialId(INSTANCE_AI_SEARCH_CREDENTIAL_POLICY),
+		]);
 		const response = this.buildAdminSettingsResponse({
 			...modelSelection,
 			daytonaCredentialId,
+			e2bCredentialId,
 			n8nSandboxCredentialId,
 			searchCredentialId,
 		});
@@ -1503,6 +1629,7 @@ export class InstanceAiSettingsService {
 	private static readonly INSTANCE_CREDENTIAL_FIELDS: readonly string[] = [
 		'modelCredentialId',
 		'daytonaCredentialId',
+		'e2bCredentialId',
 		'n8nSandboxCredentialId',
 		'searchCredentialId',
 		'modelConnection',
@@ -1521,6 +1648,7 @@ export class InstanceAiSettingsService {
 			managedFields.push(
 				'sandboxProvider',
 				'daytonaCredentialId',
+				'e2bCredentialId',
 				'n8nSandboxCredentialId',
 				'sandboxConnection',
 				'n8nSandboxServiceUrl',
@@ -1565,6 +1693,7 @@ export class InstanceAiSettingsService {
 			update.sandboxImage !== undefined ||
 			update.sandboxTimeout !== undefined ||
 			update.daytonaCredentialId !== undefined ||
+			update.e2bCredentialId !== undefined ||
 			update.n8nSandboxCredentialId !== undefined ||
 			update.sandboxConnection !== undefined;
 		if (!touchesSandboxSettings) return;
@@ -1634,6 +1763,9 @@ export class InstanceAiSettingsService {
 	private hasEnvironmentSandboxConnection(): boolean {
 		if (this.environmentSandboxProvider === 'daytona') {
 			return this.aiService.isProxyEnabled() || Boolean(this.config.daytonaApiKey.trim());
+		}
+		if (this.environmentSandboxProvider === 'e2b') {
+			return Boolean(this.config.e2bApiKey.trim());
 		}
 		// n8n Sandbox accepts keyless clients, so the service URL completes the connection.
 		return Boolean(this.environmentN8nSandboxServiceUrl.trim());
@@ -1827,12 +1959,14 @@ export class InstanceAiSettingsService {
 			PersistedAdminSettings & {
 				modelCredentialId?: string | null;
 				daytonaCredentialId?: string | null;
+				e2bCredentialId?: string | null;
 				n8nSandboxCredentialId?: string | null;
 				searchCredentialId?: string | null;
 			}
 		>(value, { fallbackValue: {} });
 		delete settings.modelCredentialId;
 		delete settings.daytonaCredentialId;
+		delete settings.e2bCredentialId;
 		delete settings.n8nSandboxCredentialId;
 		delete settings.searchCredentialId;
 		settings.permissions = upgradeLegacyPermissionModes(settings.permissions);

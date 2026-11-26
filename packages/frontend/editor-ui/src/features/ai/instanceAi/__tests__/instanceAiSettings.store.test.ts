@@ -333,6 +333,7 @@ describe('useInstanceAiSettingsStore', () => {
 			sandboxImage: '',
 			sandboxTimeout: 60,
 			daytonaCredentialId: null,
+			e2bCredentialId: null,
 			n8nSandboxCredentialId: null,
 			searchCredentialId: null,
 			modelCredentialId: null,

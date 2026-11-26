@@ -37,6 +37,9 @@ describe('InstanceAiVerificationService', () => {
 			n8nSandboxServiceApiKey: 'env-sandbox-key',
 			daytonaApiUrl: 'https://env.daytona',
 			daytonaApiKey: 'env-daytona-key',
+			e2bApiKey: '',
+			e2bTemplate: '',
+			e2bDomain: '',
 		} as unknown as InstanceAiConfig,
 	});
 	const logger = mock<Logger>();
@@ -68,6 +71,9 @@ describe('InstanceAiVerificationService', () => {
 			n8nSandboxServiceApiKey: 'env-sandbox-key',
 			daytonaApiUrl: 'https://env.daytona',
 			daytonaApiKey: 'env-daytona-key',
+			e2bApiKey: '',
+			e2bTemplate: '',
+			e2bDomain: '',
 		});
 		modelService.resolveAgentModelConfig.mockResolvedValue('openai/saved-model');
 		createModelMock.mockReturnValue({} as never);
@@ -321,6 +327,33 @@ describe('InstanceAiVerificationService', () => {
 				timeout: 60,
 				ephemeral: true,
 			});
+		});
+
+		it('verifies an E2B sandbox draft', async () => {
+			const connection = { type: 'e2bApi', data: { apiKey: 'e2b_draft_key' } };
+			settingsService.resolveSandboxConnectionForVerification.mockResolvedValue(connection);
+			const workspace = {
+				init: vi.fn().mockResolvedValue(undefined),
+				destroy: vi.fn().mockResolvedValue(undefined),
+				sandbox: { executeCommand: vi.fn().mockResolvedValue({ exitCode: 0 }) },
+			};
+			createSandboxMock.mockResolvedValue({} as never);
+			createWorkspaceMock.mockReturnValue(workspace as never);
+
+			await expect(
+				service.verifySandbox(user, { provider: 'e2b', connection }),
+			).resolves.toMatchObject({ ok: true, startupMs: expect.any(Number) });
+
+			expect(createSandboxMock).toHaveBeenCalledWith({
+				enabled: true,
+				provider: 'e2b',
+				apiKey: 'e2b_draft_key',
+				template: undefined,
+				domain: undefined,
+				timeout: 60,
+				ephemeral: true,
+			});
+			expect(workspace.destroy).toHaveBeenCalled();
 		});
 
 		it.each([

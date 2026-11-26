@@ -194,15 +194,16 @@ export class AppWorkspaceService {
 		const config = await this.settings.resolve(projectId, options);
 		if (!config.enabled) return config;
 		const sandboxId = buildAppBuildSandboxId(this.instanceSettings.instanceId, projectId, appId);
-		return config.provider === 'daytona'
-			? {
-					...config,
-					id: sandboxId,
-					name: `app-build-${sandboxId}`,
-					ephemeral: true,
-					autoStopInterval: 15,
-					autoDeleteInterval: undefined,
-				}
-			: { ...config, id: sandboxId, ephemeral: true };
+		if (config.provider === 'daytona') {
+			return {
+				...config,
+				id: sandboxId,
+				name: `app-build-${sandboxId}`,
+				ephemeral: true,
+				autoStopInterval: 15,
+				autoDeleteInterval: undefined,
+			};
+		}
+		return { ...config, id: sandboxId, ephemeral: true };
 	}
 }

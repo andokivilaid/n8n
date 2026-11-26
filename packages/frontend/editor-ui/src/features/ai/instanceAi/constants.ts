@@ -15,6 +15,7 @@ export const INSTANCE_AI_SOURCE_QUERY = 'source';
 /** Brand names, deliberately not translated; single source for dialogs and settings rows. */
 export const SANDBOX_PROVIDER_LABELS = {
 	daytona: 'Daytona',
+	e2b: 'E2B',
 	'n8n-sandbox': 'n8n Sandbox Service',
 } as const;
 

@@ -74,10 +74,38 @@ function parseDaytonaCredential({ type, data }: SandboxCredential): {
 	};
 }
 
+function optionalConnectionValue(
+	data: ICredentialDataDecryptedObject,
+	field: string,
+): string | undefined {
+	const value = data[field];
+	if (typeof value !== 'string') return undefined;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseE2bCredential({ type, data }: SandboxCredential): {
+	apiKey: string;
+	template?: string;
+	domain?: string;
+} {
+	return {
+		apiKey: requireConnectionValue(type, data, 'apiKey'),
+		template: optionalConnectionValue(data, 'template'),
+		domain: optionalConnectionValue(data, 'domain'),
+	};
+}
+
 export const INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY: InstanceCredentialUse = {
 	id: 'instance-ai:sandbox:daytona',
 	credentialTypes: ['daytonaApi'],
 	validate: parseDaytonaCredential,
+};
+
+export const INSTANCE_AI_E2B_CREDENTIAL_POLICY: InstanceCredentialUse = {
+	id: 'instance-ai:sandbox:e2b',
+	credentialTypes: ['e2bApi'],
+	validate: parseE2bCredential,
 };
 
 export const INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY: InstanceCredentialUse = {
@@ -119,6 +147,7 @@ export class SandboxSettingsService {
 	registerCredentialUses(): void {
 		if (this.credentialUsesRegistered) return;
 		this.instanceCredentialBroker.registerUse(INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY);
+		this.instanceCredentialBroker.registerUse(INSTANCE_AI_E2B_CREDENTIAL_POLICY);
 		this.instanceCredentialBroker.registerUse(INSTANCE_AI_N8N_SANDBOX_CREDENTIAL_POLICY);
 		this.credentialUsesRegistered = true;
 	}
@@ -182,6 +211,38 @@ export class SandboxSettingsService {
 			this.warnCredentialFallback(
 				'Daytona sandbox',
 				INSTANCE_AI_DAYTONA_CREDENTIAL_POLICY.id,
+				ensureError(error).message,
+			);
+			return envConfig;
+		}
+	}
+
+	async resolveE2bConfig(
+		ctx?: OperationContext,
+	): Promise<{ apiKey?: string; template?: string; domain?: string }> {
+		const { e2bApiKey, e2bTemplate, e2bDomain } = this.config;
+		const envConfig = {
+			apiKey: e2bApiKey || undefined,
+			template: e2bTemplate || undefined,
+			domain: e2bDomain || undefined,
+		};
+		const resolved = await this.resolveServiceCredential(
+			INSTANCE_AI_E2B_CREDENTIAL_POLICY,
+			'E2B sandbox',
+			ctx,
+		);
+		if (!resolved) return envConfig;
+		try {
+			const parsed = parseE2bCredential(resolved);
+			return {
+				apiKey: parsed.apiKey,
+				template: parsed.template ?? envConfig.template,
+				domain: parsed.domain ?? envConfig.domain,
+			};
+		} catch (error) {
+			this.warnCredentialFallback(
+				'E2B sandbox',
+				INSTANCE_AI_E2B_CREDENTIAL_POLICY.id,
 				ensureError(error).message,
 			);
 			return envConfig;

@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import type {
 	InstanceAiConnectionUpdate,
 	InstanceAiProviderConnection,
+	InstanceAiSandboxProvider,
 	InstanceAiVerificationFailure,
 	InstanceAiVerificationResponse,
 } from '@n8n/api-types';
@@ -104,10 +105,11 @@ const modelProvider = ref<InstanceAiModelProvider>('anthropic');
 const modelApiKey = ref('');
 const modelBaseUrl = ref('');
 const modelName = ref<string>(DEFAULT_MODEL_NAME);
-const sandboxProvider = ref<'n8n-sandbox' | 'daytona' | null>(null);
+const sandboxProvider = ref<InstanceAiSandboxProvider | null>(null);
 const sandboxServiceUrl = ref('');
 const sandboxApiKey = ref('');
 const daytonaApiKey = ref('');
+const e2bApiKey = ref('');
 const searchProvider = ref<InstanceAiSearchProvider | null>(null);
 const searchInput = ref('');
 const selectedExistingCredentialId = ref('');
@@ -141,9 +143,13 @@ const isProxyDaytonaSelection = computed(
 function assignedCredentialId(): string | null {
 	if (props.step === 'model') return store.settings?.modelCredentialId ?? null;
 	if (props.step === 'sandbox') {
-		return store.settings?.sandboxProvider === 'daytona'
-			? (store.settings?.daytonaCredentialId ?? null)
-			: (store.settings?.n8nSandboxCredentialId ?? null);
+		if (store.settings?.sandboxProvider === 'daytona') {
+			return store.settings?.daytonaCredentialId ?? null;
+		}
+		if (store.settings?.sandboxProvider === 'e2b') {
+			return store.settings?.e2bCredentialId ?? null;
+		}
+		return store.settings?.n8nSandboxCredentialId ?? null;
 	}
 	if (props.step === 'search') return store.settings?.searchCredentialId ?? null;
 	return null;
@@ -151,6 +157,7 @@ function assignedCredentialId(): string | null {
 
 function credentialProviderLabel(credential: InstanceAiProviderConnection): string {
 	if (credential.type === 'daytonaApi') return SANDBOX_PROVIDER_LABELS.daytona;
+	if (credential.type === 'e2bApi') return SANDBOX_PROVIDER_LABELS.e2b;
 	if (credential.type === 'httpHeaderAuth') return SANDBOX_PROVIDER_LABELS['n8n-sandbox'];
 	return credentialsStore.getCredentialTypeByName(credential.type)?.displayName ?? credential.type;
 }
@@ -163,7 +170,7 @@ const allCompatibleCredentials = computed(() => {
 		props.step === 'model'
 			? INSTANCE_AI_MODEL_PROVIDERS.map(({ credentialType }) => credentialType)
 			: props.step === 'sandbox'
-				? ['daytonaApi', 'httpHeaderAuth']
+				? ['daytonaApi', 'e2bApi', 'httpHeaderAuth']
 				: INSTANCE_AI_SEARCH_PROVIDERS.map(({ credentialType }) => credentialType),
 	);
 	return credentials.filter((credential) => allowedTypes.has(credential.type));
@@ -208,6 +215,7 @@ function formSnapshot(): string {
 		sandboxServiceUrl: sandboxServiceUrl.value,
 		sandboxApiKey: sandboxApiKey.value,
 		daytonaApiKey: daytonaApiKey.value,
+		e2bApiKey: e2bApiKey.value,
 		searchProvider: searchProvider.value,
 		searchValue: searchInput.value,
 		selectedExistingCredentialId: selectedExistingCredentialId.value,
@@ -235,6 +243,7 @@ const stepReady = computed(() => {
 		}
 		if (isProxyDaytonaSelection.value) return true;
 		if (sandboxProvider.value === 'daytona') return Boolean(daytonaApiKey.value.trim());
+		if (sandboxProvider.value === 'e2b') return Boolean(e2bApiKey.value.trim());
 		if (sandboxProvider.value === 'n8n-sandbox') {
 			return Boolean(sandboxServiceUrl.value.trim() && sandboxApiKey.value.trim());
 		}
@@ -322,7 +331,12 @@ function applyExistingCredential(credential: InstanceAiProviderConnection): void
 			INSTANCE_AI_CURATED_MODELS[modelProvider.value][0] ||
 			'';
 	} else if (props.step === 'sandbox') {
-		sandboxProvider.value = credential.type === 'daytonaApi' ? 'daytona' : 'n8n-sandbox';
+		sandboxProvider.value =
+			credential.type === 'daytonaApi'
+				? 'daytona'
+				: credential.type === 'e2bApi'
+					? 'e2b'
+					: 'n8n-sandbox';
 	} else if (props.step === 'search') {
 		searchProvider.value = credential.type === 'braveSearchApi' ? 'brave' : 'searxng';
 	}
@@ -378,13 +392,17 @@ async function hydrateSandbox(generation: number): Promise<void> {
 	sandboxServiceUrl.value = store.settings?.n8nSandboxServiceUrl ?? '';
 	sandboxApiKey.value = '';
 	daytonaApiKey.value = '';
+	e2bApiKey.value = '';
 	if (sandboxEnvManaged.value) return;
-	const isDaytona = store.settings?.sandboxProvider === 'daytona';
-	const credentialId = isDaytona
-		? store.settings?.daytonaCredentialId
-		: store.settings?.n8nSandboxCredentialId;
+	const provider: InstanceAiSandboxProvider = store.settings?.sandboxProvider ?? 'n8n-sandbox';
+	const credentialId =
+		provider === 'daytona'
+			? store.settings?.daytonaCredentialId
+			: provider === 'e2b'
+				? store.settings?.e2bCredentialId
+				: store.settings?.n8nSandboxCredentialId;
 	if (!credentialId) return;
-	sandboxProvider.value = isDaytona ? 'daytona' : 'n8n-sandbox';
+	sandboxProvider.value = provider;
 	const assigned = store.serviceCredentials.find(({ id }) => id === credentialId);
 	if (readOnly.value && assigned) {
 		applyExistingCredential(assigned);
@@ -392,7 +410,8 @@ async function hydrateSandbox(generation: number): Promise<void> {
 	}
 	const data = await credentialData(credentialId);
 	if (generation !== hydrationGeneration) return;
-	if (isDaytona) daytonaApiKey.value = readString(data, 'apiKey');
+	if (provider === 'daytona') daytonaApiKey.value = readString(data, 'apiKey');
+	else if (provider === 'e2b') e2bApiKey.value = readString(data, 'apiKey');
 	else sandboxApiKey.value = readString(data, 'value');
 }
 
@@ -450,6 +469,7 @@ watch(
 		sandboxServiceUrl,
 		sandboxApiKey,
 		daytonaApiKey,
+		e2bApiKey,
 		searchProvider,
 		searchInput,
 		selectedExistingCredentialId,
@@ -511,6 +531,12 @@ function sandboxConnection(): InstanceAiConnectionUpdate | undefined {
 		return {
 			type: 'daytonaApi',
 			data: { apiUrl: DAYTONA_API_URL, apiKey: daytonaApiKey.value.trim() },
+		};
+	}
+	if (sandboxProvider.value === 'e2b') {
+		return {
+			type: 'e2bApi',
+			data: { apiKey: e2bApiKey.value.trim() },
 		};
 	}
 	if (sandboxProvider.value === 'n8n-sandbox') {
@@ -579,8 +605,14 @@ async function saveExistingCredential(): Promise<boolean> {
 		store.setField('modelCredentialId', credential.id);
 		store.setField('modelName', modelName.value.trim());
 	} else if (props.step === 'sandbox') {
-		const provider = credential.type === 'daytonaApi' ? 'daytona' : 'n8n-sandbox';
+		const provider: InstanceAiSandboxProvider =
+			credential.type === 'daytonaApi'
+				? 'daytona'
+				: credential.type === 'e2bApi'
+					? 'e2b'
+					: 'n8n-sandbox';
 		store.setField('daytonaCredentialId', provider === 'daytona' ? credential.id : null);
+		store.setField('e2bCredentialId', provider === 'e2b' ? credential.id : null);
 		store.setField('n8nSandboxCredentialId', provider === 'n8n-sandbox' ? credential.id : null);
 		store.setField('sandboxProvider', provider);
 		store.setField('sandboxEnabled', true);
@@ -1018,7 +1050,9 @@ const stepLede = computed(() => {
 									{{
 										provider.id === 'n8n-sandbox'
 											? i18n.baseText('instanceAi.onboarding.sandbox.n8nDescription')
-											: i18n.baseText('instanceAi.onboarding.sandbox.daytonaDescription')
+											: provider.id === 'daytona'
+												? i18n.baseText('instanceAi.onboarding.sandbox.daytonaDescription')
+												: i18n.baseText('instanceAi.onboarding.sandbox.e2bDescription')
 									}}
 								</N8nText>
 							</span>
@@ -1108,6 +1142,38 @@ const stepLede = computed(() => {
 							{{ i18n.baseText('instanceAi.onboarding.sandbox.daytonaKey') }}
 							<N8nLink to="https://app.daytona.io" new-window>
 								{{ i18n.baseText('instanceAi.onboarding.sandbox.daytonaDashboard') }} </N8nLink
+							>.
+						</N8nText>
+					</div>
+					<div
+						v-else-if="
+							!sandboxEnvManaged && sandboxProvider === 'e2b' && !selectedExistingCredentialId
+						"
+						:class="$style.fields"
+						:data-test-id="
+							surface === 'settings' ? 'n8n-agent-sandbox-connection-fields' : undefined
+						"
+					>
+						<N8nInputLabel
+							:class="$style.compactLabel"
+							:label="i18n.baseText('instanceAi.onboarding.sandbox.apiKey')"
+							input-name="assistant-e2b-api-key"
+						>
+							<N8nInput
+								id="assistant-e2b-api-key"
+								v-model="e2bApiKey"
+								class="ph-no-capture"
+								type="password"
+								autocomplete="off"
+								:spellcheck="false"
+								placeholder="e2b_…"
+								data-test-id="assistant-e2b-api-key"
+							/>
+						</N8nInputLabel>
+						<N8nText step="xs" color="text-light">
+							{{ i18n.baseText('instanceAi.onboarding.sandbox.e2bKey') }}
+							<N8nLink to="https://e2b.dev/dashboard" new-window>
+								{{ i18n.baseText('instanceAi.onboarding.sandbox.e2bDashboard') }} </N8nLink
 							>.
 						</N8nText>
 					</div>

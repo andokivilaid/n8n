@@ -8,6 +8,7 @@ const unconfigured: InstanceAiSetupStateInput = {
 	sandboxEnvConfigured: false,
 	sandboxProvider: 'n8n-sandbox',
 	daytonaCredentialId: null,
+	e2bCredentialId: null,
 	n8nSandboxCredentialId: null,
 	searchCredentialId: null,
 	searchEnvConfigured: false,
@@ -111,5 +112,26 @@ describe('deriveInstanceAiSetupState', () => {
 
 		expect(state.webSearchSource).toBe('disabled');
 		expect(state.setupCompleted).toBe(true);
+	});
+
+	it('reports UI source and completion for an e2b sandbox credential', () => {
+		expect(
+			deriveInstanceAiSetupState({
+				...unconfigured,
+				modelCredentialId: 'model-cred',
+				modelName: 'gpt-4',
+				sandboxEnabled: true,
+				sandboxProvider: 'e2b',
+				e2bCredentialId: 'e2b-cred',
+				searchDisabled: true,
+			}),
+		).toEqual({
+			modelSource: 'ui',
+			sandboxSource: 'ui',
+			sandboxType: 'e2b',
+			sandboxCredentialId: 'e2b-cred',
+			webSearchSource: 'disabled',
+			setupCompleted: true,
+		});
 	});
 });

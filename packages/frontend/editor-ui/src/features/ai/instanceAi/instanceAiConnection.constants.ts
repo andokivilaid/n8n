@@ -74,6 +74,7 @@ export const INSTANCE_AI_SANDBOX_PROVIDERS = [
 		onboardingLabel: 'n8n Sandbox',
 	},
 	{ id: 'daytona', label: SANDBOX_PROVIDER_LABELS.daytona, onboardingLabel: 'Daytona' },
+	{ id: 'e2b', label: SANDBOX_PROVIDER_LABELS.e2b, onboardingLabel: 'E2B' },
 ] as const satisfies ReadonlyArray<{
 	id: InstanceAiSandboxProvider;
 	label: string;

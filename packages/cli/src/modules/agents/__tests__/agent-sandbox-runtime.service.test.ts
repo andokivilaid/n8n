@@ -72,6 +72,11 @@ function makeSandboxSettingsService(
 		serviceUrl: 'https://sandbox.example',
 		apiKey: 'sandbox-key',
 	});
+	service.resolveE2bConfig.mockResolvedValue({
+		apiKey: 'e2b-key',
+		template: 'e2b-template',
+		domain: 'e2b.example',
+	});
 	return service;
 }
 
@@ -127,6 +132,30 @@ describe('AgentSandboxRuntimeService', () => {
 		sandbox = makeSandbox();
 		createSandboxMock.mockResolvedValue(sandbox);
 		createFilesystemMock.mockReturnValue(mock<WorkspaceFilesystem>());
+	});
+
+	it('creates and starts a deterministic E2B workspace sandbox when e2b provider is active', async () => {
+		const e2bSandbox = makeSandbox('e2b', `agent-ws-${workspaceSandboxId}`);
+		createSandboxMock.mockResolvedValue(e2bSandbox);
+		const sandboxSettingsService = makeSandboxSettingsService('e2b');
+		const service = makeService({ sandboxSettingsService });
+
+		const runtime = await service.acquireWorkspaceSandbox(projectId, agentId, principalHash);
+
+		expect(createSandboxMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabled: true,
+				provider: 'e2b',
+				id: `agent-ws-${workspaceSandboxId}`,
+				apiKey: 'e2b-key',
+				template: 'e2b-template',
+				domain: 'e2b.example',
+				ephemeral: false,
+			}),
+			expect.any(Object),
+		);
+		expect(runtime.provider).toBe('e2b');
+		expect(runtime.workspaceRoot).toBe('/home/user/workspace');
 	});
 
 	it('creates and starts the deterministic direct-mode Daytona knowledge sandbox', async () => {
@@ -353,8 +382,10 @@ describe('AgentSandboxRuntimeService', () => {
 		expect(destroyedIds).toEqual([
 			`agent-ws-${workspaceSandboxId}`,
 			workspaceSandboxId,
+			`agent-ws-${workspaceSandboxId}`,
 			`agent-kb-${knowledgeSandboxId}`,
 			knowledgeSandboxId,
+			`agent-kb-${knowledgeSandboxId}`,
 		]);
 	});
 });

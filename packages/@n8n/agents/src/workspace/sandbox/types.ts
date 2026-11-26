@@ -51,7 +51,7 @@ export type {
 	WriteOptions,
 };
 
-export type SandboxProvider = 'daytona' | 'n8n-sandbox';
+export type SandboxProvider = 'daytona' | 'n8n-sandbox' | 'e2b';
 
 export interface SandboxConfigBase {
 	provider: SandboxProvider;
@@ -104,7 +104,27 @@ export interface N8nSandboxConfig extends EnabledSandboxConfigBase {
 	id?: string;
 }
 
-export type SandboxConfig = DisabledSandboxConfig | DaytonaSandboxConfig | N8nSandboxConfig;
+export interface E2bSandboxConfig extends EnabledSandboxConfigBase {
+	provider: 'e2b';
+	/**
+	 * Deterministic sandbox identity. Stored in E2B sandbox metadata so a restarted
+	 * process or another main can find and reconnect to the same sandbox.
+	 */
+	id?: string;
+	apiKey?: string;
+	/** E2B template ID or alias. Omit to use E2B's default template. */
+	template?: string;
+	/** Custom E2B domain for self-hosted deployments. */
+	domain?: string;
+	metadata?: Record<string, string>;
+	logger?: Logger;
+}
+
+export type SandboxConfig =
+	| DisabledSandboxConfig
+	| DaytonaSandboxConfig
+	| N8nSandboxConfig
+	| E2bSandboxConfig;
 
 export type SandboxInstance = WorkspaceSandbox;
 export type SandboxFilesystem = WorkspaceFilesystem;

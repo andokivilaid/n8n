@@ -4,6 +4,7 @@ import {
 	getPromptWorkspaceRoot,
 	type CommandResult,
 	type DaytonaSandboxConfig,
+	type E2bSandboxConfig,
 	type FilesystemLifecycleHook,
 	type N8nSandboxConfig,
 	type SandboxProvider,
@@ -290,6 +291,7 @@ export class AgentSandboxRuntimeService {
 		const sandboxes = [
 			['daytona', daytonaName],
 			['n8n-sandbox', n8nSandboxId],
+			['e2b', daytonaName],
 		] as const;
 
 		for (const [provider, sandboxId] of sandboxes) {
@@ -305,10 +307,13 @@ export class AgentSandboxRuntimeService {
 		labels: Record<string, string>,
 	): Promise<void> {
 		try {
-			const config =
-				provider === 'daytona'
-					? await this.resolveDaytonaSandboxConfig(projectId, sandboxId, labels)
-					: await this.resolveN8nSandboxConfig(sandboxId);
+			const config = await this.resolveProviderSandboxConfig(
+				provider,
+				projectId,
+				sandboxId,
+				sandboxId,
+				labels,
+			);
 			const sandbox = await createSandbox(config, { logger: this.logger });
 			// deleteRemote deletes by sandbox identity even though this instance never
 			// started it; destroy() is scoped to remotes the instance acquired.
@@ -340,15 +345,37 @@ export class AgentSandboxRuntimeService {
 	): Promise<AgentSandboxRuntime> {
 		await getAgentOrThrow(this.agentRepository, agentId, projectId);
 
-		const config =
-			provider === 'daytona'
-				? await this.resolveDaytonaSandboxConfig(projectId, daytonaName, labels, lifecycle)
-				: await this.resolveN8nSandboxConfig(n8nSandboxId, lifecycle);
+		const config = await this.resolveProviderSandboxConfig(
+			provider,
+			projectId,
+			daytonaName,
+			n8nSandboxId,
+			labels,
+			lifecycle,
+		);
 		return await this.startSandbox(config, projectId, agentId, cacheKey, startOptions);
 	}
 
+	private async resolveProviderSandboxConfig(
+		provider: SandboxProvider,
+		projectId: string,
+		namedSandboxId: string,
+		uuidSandboxId: string,
+		labels: Record<string, string>,
+		lifecycle: SandboxLifecycle = {},
+	): Promise<DaytonaSandboxConfig | N8nSandboxConfig | E2bSandboxConfig> {
+		switch (provider) {
+			case 'daytona':
+				return await this.resolveDaytonaSandboxConfig(projectId, namedSandboxId, labels, lifecycle);
+			case 'e2b':
+				return await this.resolveE2bSandboxConfig(namedSandboxId, labels, lifecycle);
+			case 'n8n-sandbox':
+				return await this.resolveN8nSandboxConfig(uuidSandboxId, lifecycle);
+		}
+	}
+
 	private async startSandbox(
-		config: DaytonaSandboxConfig | N8nSandboxConfig,
+		config: DaytonaSandboxConfig | N8nSandboxConfig | E2bSandboxConfig,
 		projectId: string,
 		agentId: string,
 		cacheKey: string,
@@ -403,6 +430,31 @@ export class AgentSandboxRuntimeService {
 			timeout: this.agentsConfig.sandboxTimeout,
 			createTimeoutSeconds: Math.ceil(this.agentsConfig.sandboxTimeout / 1000),
 			...lifecycle,
+		};
+	}
+
+	private async resolveE2bSandboxConfig(
+		sandboxId: string,
+		labels: Record<string, string>,
+		lifecycle: Pick<SandboxLifecycle, 'ephemeral'> = {},
+	): Promise<E2bSandboxConfig> {
+		const { apiKey, template, domain } = await this.sandboxSettingsService.resolveE2bConfig();
+		const normalizedApiKey = apiKey?.trim();
+		if (!normalizedApiKey) {
+			throw new OperationalError(
+				'Agent knowledge sandbox requires an E2B API key. Set E2B_API_KEY or connect the E2B credential.',
+			);
+		}
+		return {
+			enabled: true,
+			provider: 'e2b',
+			id: sandboxId,
+			apiKey: normalizedApiKey,
+			...(template ? { template } : {}),
+			...(domain ? { domain } : {}),
+			metadata: labels,
+			timeout: this.agentsConfig.sandboxTimeout,
+			ephemeral: lifecycle.ephemeral,
 		};
 	}
 

@@ -312,7 +312,12 @@ async function savedCredentialWorks(kind: 'model' | 'sandbox'): Promise<boolean>
 		return !!credential && (await testSavedCredential(id, credential.name, credential.type));
 	}
 	if (!sandboxCredentialId.value) return true;
-	const type = store.settings?.sandboxProvider === 'daytona' ? 'daytonaApi' : 'httpHeaderAuth';
+	const type =
+		store.settings?.sandboxProvider === 'daytona'
+			? 'daytonaApi'
+			: store.settings?.sandboxProvider === 'e2b'
+				? 'e2bApi'
+				: 'httpHeaderAuth';
 	return await testSavedCredential(sandboxCredentialId.value, 'n8n Assistant sandbox', type);
 }
 

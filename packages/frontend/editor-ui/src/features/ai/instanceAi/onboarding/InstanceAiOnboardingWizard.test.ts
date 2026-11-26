@@ -54,6 +54,7 @@ function setupStore(overrides: Record<string, unknown> = {}) {
 			sandboxEnabled: false,
 			sandboxProvider: 'n8n-sandbox',
 			daytonaCredentialId: null,
+			e2bCredentialId: null,
 			n8nSandboxCredentialId: null,
 			searchCredentialId: null,
 			modelCredentialId: null,
@@ -425,6 +426,35 @@ describe('InstanceAiOnboardingWizard', () => {
 				},
 			}),
 		);
+	});
+
+	it('verifies and saves an E2B sandbox connection', async () => {
+		const { pinia, store } = setupStore();
+		vi.mocked(store.verifySandbox).mockResolvedValue({ ok: true, startupMs: 900 });
+		const { emitted, findByTestId, getByTestId } = renderWizard({
+			pinia,
+			props: { step: 'sandbox' },
+		});
+
+		await fireEvent.click(await findByTestId('assistant-sandbox-e2b'));
+		await fireEvent.update(inputFor(getByTestId('assistant-e2b-api-key')), ' e2b_test_key ');
+		await fireEvent.click(getByTestId('wizard-primary'));
+
+		const connection = {
+			type: 'e2bApi',
+			data: { apiKey: 'e2b_test_key' },
+		};
+		await waitFor(() =>
+			expect(store.verifySandbox).toHaveBeenCalledWith({
+				provider: 'e2b',
+				connection,
+			}),
+		);
+		expect(store.setField).toHaveBeenCalledWith('sandboxConnection', connection);
+		expect(store.setField).toHaveBeenCalledWith('sandboxProvider', 'e2b');
+		expect(store.setField).toHaveBeenCalledWith('sandboxEnabled', true);
+		expect(store.refreshCredentials).toHaveBeenCalled();
+		await waitFor(() => expect(emitted().advance).toEqual([[]]), { timeout: 2500 });
 	});
 
 	it('selects and assigns an existing Daytona credential in settings', async () => {

@@ -2697,7 +2697,7 @@ export function resolveInstanceAiPermissions(
 // Admin settings — instance-scoped, admin-only
 // ---------------------------------------------------------------------------
 
-export const instanceAiSandboxProviderSchema = z.enum(['n8n-sandbox', 'daytona']);
+export const instanceAiSandboxProviderSchema = z.enum(['n8n-sandbox', 'daytona', 'e2b']);
 export type InstanceAiSandboxProvider = z.infer<typeof instanceAiSandboxProviderSchema>;
 
 export function isInstanceAiSandboxProvider(value: unknown): value is InstanceAiSandboxProvider {
@@ -2762,6 +2762,7 @@ export interface InstanceAiAdminSettingsResponse {
 	sandboxEnabled: boolean;
 	sandboxProvider: InstanceAiSandboxProvider;
 	daytonaCredentialId: string | null;
+	e2bCredentialId: string | null;
 	n8nSandboxCredentialId: string | null;
 	searchCredentialId: string | null;
 	modelCredentialId: string | null;
@@ -2788,6 +2789,7 @@ export type InstanceAiSetupStateInput = Pick<
 	| 'sandboxEnvConfigured'
 	| 'sandboxProvider'
 	| 'daytonaCredentialId'
+	| 'e2bCredentialId'
 	| 'n8nSandboxCredentialId'
 	| 'searchCredentialId'
 	| 'searchEnvConfigured'
@@ -2823,7 +2825,9 @@ export function deriveInstanceAiSetupState(
 	const sandboxCredentialId =
 		settings.sandboxProvider === 'daytona'
 			? settings.daytonaCredentialId
-			: settings.n8nSandboxCredentialId;
+			: settings.sandboxProvider === 'e2b'
+				? settings.e2bCredentialId
+				: settings.n8nSandboxCredentialId;
 	const sandboxSource: InstanceAiComponentSource = !settings.sandboxEnabled
 		? 'none'
 		: settings.sandboxEnvConfigured
@@ -2875,6 +2879,7 @@ export class InstanceAiAdminSettingsUpdateRequest extends Z.class({
 	sandboxImage: z.string().optional(),
 	sandboxTimeout: z.number().int().positive().optional(),
 	daytonaCredentialId: z.string().nullable().optional(),
+	e2bCredentialId: z.string().nullable().optional(),
 	n8nSandboxCredentialId: z.string().nullable().optional(),
 	searchCredentialId: z.string().nullable().optional(),
 	modelCredentialId: z.string().nullable().optional(),

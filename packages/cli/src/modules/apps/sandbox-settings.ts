@@ -32,6 +32,18 @@ export async function resolveAppSandboxConfig(
 			timeout: config.sandboxTimeout,
 		};
 	}
+	if (provider === 'e2b') {
+		const credentials = await settings.resolveE2bConfig();
+		if (!credentials.apiKey) return { enabled: false, provider: 'e2b' };
+		return {
+			enabled: true,
+			provider: 'e2b',
+			apiKey: credentials.apiKey,
+			...(credentials.template ? { template: credentials.template } : {}),
+			...(credentials.domain ? { domain: credentials.domain } : {}),
+			timeout: config.sandboxTimeout,
+		};
+	}
 	const credentials = await settings.resolveN8nSandboxConfig();
 	if (!credentials.serviceUrl) return { enabled: false, provider: 'n8n-sandbox' };
 	return {

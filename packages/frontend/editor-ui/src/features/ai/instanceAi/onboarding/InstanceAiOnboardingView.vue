@@ -9,6 +9,7 @@ import { useCredentialsStore } from '@/features/credentials/credentials.store';
 import { useInstanceAiConfiguration } from '../composables/useInstanceAiConfiguration';
 import {
 	INSTANCE_AI_MODEL_PROVIDERS,
+	INSTANCE_AI_SANDBOX_PROVIDERS,
 	INSTANCE_AI_SEARCH_PROVIDERS,
 } from '../instanceAiConnection.constants';
 import { useInstanceAiSettingsStore } from '../instanceAiSettings.store';
@@ -59,7 +60,11 @@ const sandboxValue = computed(() => {
 		return i18n.baseText('instanceAi.onboarding.foundOnServer');
 	}
 	if (!configuration.sandboxConfigured.value) return notSet.value;
-	return store.settings?.sandboxProvider === 'daytona' ? 'Daytona' : 'n8n Sandbox';
+	const provider = store.settings?.sandboxProvider ?? 'n8n-sandbox';
+	return (
+		INSTANCE_AI_SANDBOX_PROVIDERS.find(({ id }) => id === provider)?.onboardingLabel ??
+		'n8n Sandbox'
+	);
 });
 const searchValue = computed(() => {
 	if (configuration.searchState.value === 'notset') return notSet.value;

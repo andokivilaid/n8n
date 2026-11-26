@@ -18,6 +18,7 @@ const emptySelection: AdminCredentialSelection = {
 	modelCredentialId: null,
 	modelName: null,
 	daytonaCredentialId: null,
+	e2bCredentialId: null,
 	n8nSandboxCredentialId: null,
 	searchCredentialId: null,
 };

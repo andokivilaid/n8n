@@ -17,6 +17,10 @@ describe('getPromptWorkspaceRoot', () => {
 	it('returns n8n-sandbox workspace root', () => {
 		expect(getPromptWorkspaceRoot('n8n-sandbox')).toBe('/home/user/workspace');
 	});
+
+	it('returns e2b workspace root', () => {
+		expect(getPromptWorkspaceRoot('e2b')).toBe('/home/user/workspace');
+	});
 });
 
 describe('getWorkspaceRoot', () => {

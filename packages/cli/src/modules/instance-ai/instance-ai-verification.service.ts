@@ -294,6 +294,25 @@ export class InstanceAiVerificationService {
 			};
 		}
 
+		if (provider === 'e2b') {
+			const saved = connection ? undefined : await this.settingsService.resolveE2bConfig();
+			return {
+				enabled: true,
+				provider: 'e2b',
+				apiKey: connectionString(connection, 'apiKey') ?? saved?.apiKey ?? instanceAi.e2bApiKey,
+				template:
+					connectionString(connection, 'template') ??
+					saved?.template ??
+					(instanceAi.e2bTemplate || undefined),
+				domain:
+					connectionString(connection, 'domain') ??
+					saved?.domain ??
+					(instanceAi.e2bDomain || undefined),
+				timeout: instanceAi.sandboxTimeout,
+				ephemeral: true,
+			};
+		}
+
 		const saved = connection ? undefined : await this.settingsService.resolveN8nSandboxConfig();
 		return {
 			enabled: true,
