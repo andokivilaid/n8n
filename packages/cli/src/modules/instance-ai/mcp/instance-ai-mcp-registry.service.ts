@@ -325,6 +325,7 @@ export class InstanceAiMcpRegistryService {
 		// One proxy-aware, SSRF-protected transport shared across all resolved MCP connections.
 		const aiMcpFetch = createAiMcpFetch(this.outboundHttp);
 
+		const adminMcpPermissions = this.instanceAiSettingsService.getPermissions?.();
 		const resolved: McpServerConfig[] = [];
 		for (const connection of sortedConnections) {
 			const server = serverBySlug.get(connection.serverSlug);
@@ -356,12 +357,30 @@ export class InstanceAiMcpRegistryService {
 
 			const nextCount = (slugCounts.get(resolvedServer.serverSlug) ?? 0) + 1;
 			slugCounts.set(resolvedServer.serverSlug, nextCount);
+			const savedPermissions = connection.toolPermissions;
+			const toolPermissions =
+				adminMcpPermissions?.mcpWrite === 'always_allow' && savedPermissions
+					? {
+							...savedPermissions,
+							categories: {
+								read:
+									adminMcpPermissions.mcpRead === 'always_allow' &&
+									savedPermissions.categories.read === 'require_approval'
+										? ('always_allow' as const)
+										: savedPermissions.categories.read,
+								write:
+									savedPermissions.categories.write === 'require_approval'
+										? ('always_allow' as const)
+										: savedPermissions.categories.write,
+							},
+						}
+					: savedPermissions;
 			const serverConfig: McpServerConfig = {
 				name: buildServerName(resolvedServer.serverSlug, nextCount),
 				url: resolvedServer.connection.endpointUrl,
 				transport: toAgentMcpTransport(resolvedServer.connection.transport),
 				cacheKey: `registry-connection:${connection.id}:${connection.credentialId}`,
-				toolPermissions: connection.toolPermissions,
+				toolPermissions,
 				metadata: {
 					connectionId: connection.id,
 					serverSlug: resolvedServer.serverSlug,

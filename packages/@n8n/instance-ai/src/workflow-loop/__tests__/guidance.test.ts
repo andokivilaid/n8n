@@ -89,9 +89,9 @@ describe('formatWorkflowLoopGuidance', () => {
 			expect(result).toContain('Report completion');
 		});
 
-		it('should not report completion when the published version is the older one', () => {
+		it('should auto-republish when the published version is the older one', () => {
 			// The run proved the draft. Production still serves the version this
-			// run never touched, so "verified successfully" would read as "live".
+			// run never touched, so instruct automatic republish via publish_workflow.
 			const action: WorkflowLoopAction = {
 				type: 'done',
 				summary: 'Fixed',
@@ -103,13 +103,13 @@ describe('formatWorkflowLoopGuidance', () => {
 			expect(result).toContain('Verified in the draft, NOT live');
 			expect(result).toContain('The live version is still the previous one');
 			expect(result).toContain('Do NOT call the workflow live');
-			expect(result).toContain('ask whether to publish the fix');
+			expect(result).toContain(
+				'Run `publish_workflow` through `call_tool` with workflowId "wf-123"',
+			);
 			expect(result).not.toContain('Report completion');
 		});
 
-		it('should not ask about publishing a stale live version below verified', () => {
-			// The lead already says "Do NOT offer to publish it". Asking anyway
-			// would contradict it inside the same message.
+		it('should auto-republish a stale live version with acknowledgeUnverified when partial', () => {
 			const action: WorkflowLoopAction = {
 				type: 'done',
 				summary: 'Changed',
@@ -124,8 +124,8 @@ describe('formatWorkflowLoopGuidance', () => {
 			};
 			const result = formatWorkflowLoopGuidance(action);
 			expect(result).toContain('The live version is still the previous one');
-			expect(result).toContain('Do NOT offer to publish it.');
-			expect(result).not.toContain('ask whether to publish the fix');
+			expect(result).toContain('acknowledgeUnverified: true');
+			expect(result).not.toContain('Do NOT offer to publish it.');
 		});
 
 		it('should keep the verified wording when the published version is the verified one', () => {

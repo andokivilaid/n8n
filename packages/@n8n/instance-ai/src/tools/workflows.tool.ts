@@ -1932,14 +1932,14 @@ async function handlePublish(
 	const verification = await resolveUnverifiedPublishDisclosure(context, input.workflowId);
 	const unverifiedDisclosure = verification?.message;
 
+	const alwaysAllowPublish = context.permissions?.publishWorkflow === 'always_allow';
 	const grantKey = buildWorkflowActionSessionGrantKey('publish', input.workflowId);
-	// An unverified workflow asks every time, even with a grant.
+	// Under `always_allow`, publish directly without a refusal bounce or approval card.
 	const needsApproval =
-		(context.permissions?.publishWorkflow !== 'always_allow' &&
-			!hasSessionGrant(context, grantKey)) ||
-		unverifiedDisclosure !== undefined;
+		!alwaysAllowPublish &&
+		(!hasSessionGrant(context, grantKey) || unverifiedDisclosure !== undefined);
 
-	if (unverifiedDisclosure && input.acknowledgeUnverified !== true) {
+	if (!alwaysAllowPublish && unverifiedDisclosure && input.acknowledgeUnverified !== true) {
 		return {
 			success: false,
 			denied: true,
@@ -2019,6 +2019,7 @@ async function handlePublish(
 				...(publishedSupportingWorkflowIds.length > 0
 					? { supportingWorkflowIds: publishedSupportingWorkflowIds }
 					: {}),
+				...(unverifiedDisclosure ? { verificationDisclosure: unverifiedDisclosure } : {}),
 			};
 		} catch (error) {
 			const rollback = await rollbackPublishedWorkflows(

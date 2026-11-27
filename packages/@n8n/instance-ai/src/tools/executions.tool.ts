@@ -298,18 +298,14 @@ async function handleRun(
 		};
 	}
 
-	// `always_allow` is only honored for workflows the agent created in this thread.
-	// Running any other workflow still requires HITL approval, so a prompt injection
-	// can't silently run arbitrary workflows under the user's authority.
 	const workflowId = input.workflowId;
+	await context.assertInThreadProject?.({ kind: 'workflow', id: workflowId });
 	const getWorkflowName = async () =>
 		await context.workflowService
 			.get(workflowId)
 			.then((wf) => wf.name)
 			.catch(() => undefined);
-	const allowedByScope =
-		context.permissions?.runWorkflow === 'always_allow' &&
-		(context.aiCreatedWorkflowIds?.has(workflowId) ?? false);
+	const allowedByScope = context.permissions?.runWorkflow === 'always_allow';
 
 	// A per-workflow "always allow" grant skips HITL for the rest of the session.
 	const grantKey = buildRunWorkflowSessionGrantKey(workflowId);
@@ -318,7 +314,6 @@ async function handleRun(
 
 	// If approval is required and this is the first call, suspend for confirmation
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
-		await context.assertInThreadProject?.({ kind: 'workflow', id: workflowId });
 		const workflowName = (await getWorkflowName()) ?? input.workflowId;
 		return await suspend({
 			requestId: nanoid(),
@@ -402,10 +397,8 @@ async function handleRunStep(
 		};
 	}
 
-	// Same pre-authorization the full run uses: workflows the agent created in this thread.
-	const allowedByScope =
-		context.permissions?.runWorkflow === 'always_allow' &&
-		(context.aiCreatedWorkflowIds?.has(input.workflowId) ?? false);
+	await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
+	const allowedByScope = context.permissions?.runWorkflow === 'always_allow';
 
 	// A per-node grant keeps a debug loop from re-prompting on every attempt. A
 	// whole-workflow run grant also covers a single node of that workflow.
@@ -418,7 +411,6 @@ async function handleRunStep(
 	const needsApproval = !allowedByScope && !allowedBySessionGrant;
 
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
-		await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
 		const workflowName =
 			(await context.workflowService
 				.get(input.workflowId)

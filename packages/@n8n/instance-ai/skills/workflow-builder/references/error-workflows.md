@@ -52,36 +52,20 @@ workflow. Continue the publish-before-assign flow for the target workflow:
 ask whether to publish the error workflow and set it on that target workflow,
 then publish and assign only after the user approves.
 
-After successfully publishing a direct new primary workflow,
-ask once whether the user wants to build an error workflow for that workflow.
-Use `ask_user` with a yes/no choice or a concise visible question. Do **not**
-create an error workflow before the user opts in.
+Do **not** proactively ask with `ask_user` or in plain text whether to build an
+error workflow after publishing a workflow. Create and attach an error workflow
+only when the user explicitly asks for one.
 
-The opt-in must explicitly mention an error workflow and the target workflow
-name. A generic follow-up like "Want me to add anything else?", "Want me to
-publish it?", or "Want to test it?" does not satisfy this step.
-
-Skip this follow-up when:
-
-- The workflow you just built is itself an error workflow or starts with an
-  Error Trigger.
-- The build is a supporting workflow, repair, small edit, or workflow-level
-  settings patch.
-- The user already asked for an error workflow in the original request, already
-  declined one, or the target workflow already has the desired error workflow
-  set.
-
-If the user says yes:
+When the user asks to create or attach an error workflow:
 
 1. Load `workflow-builder` and build a separate error workflow using the user's
    requested notification destination. Keep the error workflow scoped to the
-   target workflow the user opted in for.
+   target workflow the user named.
 2. Do not ask whether this new error workflow needs its own error workflow.
-3. The error workflow must be published before it can be assigned. If the user
-   has not already asked you to publish and attach it, ask whether to publish it
-   and set it as the error workflow for the named target workflow. When the user
-   agrees, run `publish_workflow` through `call_tool` for the error workflow and let the
-   HITL approval card handle confirmation.
+3. The error workflow must be published before it can be assigned. Run
+   `publish_workflow` through `call_tool` for the error workflow (passing
+   `acknowledgeUnverified: true` if verification simulated external nodes) and
+   continue the publish-before-assign flow directly without stopping to ask.
 4. After publish succeeds, set the original workflow's workflow-level
    `settings.errorWorkflow` to the **error workflow's workflowId**. Do not use
    the published `activeVersionId`, workflow name, a placeholder, or a local SDK

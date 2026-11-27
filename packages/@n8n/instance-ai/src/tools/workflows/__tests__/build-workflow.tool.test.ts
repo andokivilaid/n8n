@@ -865,16 +865,13 @@ describe('createBuildWorkflowTool', () => {
 			'Load the post-build-flow skill with load_skill.',
 		);
 		expect(result.postBuildFlow?.guidance).toContain(
-			'then mocked/no-mock live-test when latest verification used mocks or simulations',
+			'republish the updated draft automatically with `publish_workflow`',
 		);
 		expect(result.postBuildFlow?.guidance).toContain(
-			'never offer publishing as an alternative to the live test',
+			'Keep brand-new unpublished workflows as drafts unless the user explicitly asks to publish.',
 		);
 		expect(result.postBuildFlow?.guidance).toContain(
-			'A user-run execution counts only after `list_executions`',
-		);
-		expect(result.postBuildFlow?.guidance).toContain(
-			'Do not replace the error-workflow opt-in with a generic add-anything',
+			'Do not ask unsolicited follow-up questions about live tests or error workflows.',
 		);
 		expect(compileWorkflowSource).toHaveBeenCalledWith(context, filePath, source, undefined, {
 			engine: 'v1',

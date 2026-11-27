@@ -41,34 +41,34 @@ was used. You may offer publishing after that confirmation.
 
 ## When to publish
 
-Only run `publish_workflow` through `call_tool` when the user explicitly asks to
-publish. Never publish automatically or proactively offer publishing before
-the publish-readiness requirement above is met. A repair of a workflow that
-is already published is the exception: you may ask whether to publish the fix
-before that requirement is met, as the section below describes. Still publish
-it only after the user agrees.
+For a **new, unpublished** workflow (`activeVersionId: null`), only run
+`publish_workflow` through `call_tool` when the user explicitly asks to publish.
+Never publish a brand-new workflow automatically.
+
+For an **already-published** workflow (`activeVersionId` is non-null, or
+`claim.liveState === "live-stale"` / `publishState.live === "stale"`), republish
+your fix automatically once the build and verification succeed and no required
+setup items remain open, unless the user explicitly asked to keep the change as
+a draft.
 
 ## Fixing a workflow that is already published
 
-The publishing rules above assume a new workflow. A repair of a workflow that
-is already published is different. That workflow runs in production right now,
-and it runs the version published before your fix. Your save creates a draft,
-and the draft is not live. The published version keeps running, broken, until
-somebody publishes the fix.
+A repair or edit of a workflow that is already published is different from a new
+workflow. That workflow runs in production right now, and your save creates a
+draft (`live-stale`). Until the updated draft is published, production continues
+running the older broken version.
 
-For a repair on a published workflow:
+For a repair or edit on a published workflow:
 
-- Telling the user the fix is not live yet is not an offer to publish. Say it.
-- Do NOT report the workflow as fixed, live, running, or working in production
-  while the published version is the older one. Say the fix is in the draft.
-- `workflow_builder_verify_built_workflow` returns `claim.liveState`. `live-stale` means the
-  published version is older than the draft you just verified. The result also
-  carries `liveStateNote`. Relay it.
-- Without a claim, call `get_workflow(workflowId)` and compare
-  `versionId` (the draft) with `activeVersionId` (the published version). They
-  differ while the fix is not live. A null `activeVersionId` means the workflow
-  is not published at all.
-- Ask whether to publish the fix. Publish only after the user agrees.
-- Name the version in a retest invitation: the draft, or the published version.
-  "Send another email to test it" is wrong when the fix is still a draft — the
-  test would run the broken version and look like the fix failed.
+- When `claim.liveState === "live-stale"` (or `get_workflow(workflowId)` shows a
+  non-null `activeVersionId` that differs from `versionId`) and no required
+  setup items remain open, run `publish_workflow` through `call_tool`
+  immediately without asking whether to publish. If verification simulated
+  side-effect nodes or left branches unreached, pass
+  `acknowledgeUnverified: true` on `publish_workflow` and state the simulated or
+  unreached nodes concisely in your summary.
+- Leave the edit as an unpublished draft only when required credentials or
+  setup placeholders remain open, verification failed with an unresolved error,
+  or the user explicitly asked not to publish yet. In those cases, do NOT report
+  the workflow as fixed or live in production — state clearly that the change is
+  saved in the draft only.

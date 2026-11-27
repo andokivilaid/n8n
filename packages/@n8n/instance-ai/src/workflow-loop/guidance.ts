@@ -46,12 +46,13 @@ function formatClaimLead(claim: VerificationClaim | undefined): string {
 
 	// The claim is the only honest reading of the run, and nothing else tells
 	// the user how strong it is, so these rules carry the whole disclosure.
+	const isStalePublished = claim.liveState === 'live-stale';
 	const rules = [
 		'Do NOT call the workflow verified, tested, working, or ready to publish.',
-		'Do NOT offer to publish it.',
+		...(isStalePublished ? [] : ['Do NOT offer to publish it.']),
 		(claim.pendingTriggers?.length ?? 0) > 0
 			? 'Follow the verification obligation for the remaining triggers. Respect its attempt limit.'
-			: claim.liveTestRecommended
+			: !isStalePublished && claim.liveTestRecommended
 				? 'Offer a live end-to-end test instead.'
 				: '',
 	].filter((rule) => rule !== '');
@@ -111,15 +112,20 @@ export function formatWorkflowLoopGuidance(
 					'Do not call `setup_credentials` or `workflow_builder_apply_workflow_credentials` — `setup_workflow` handles everything.'
 				);
 			}
-			// Only a verified draft earns the publish question. Below `verified` the
-			// lead already says "Do NOT offer to publish it", and asking anyway
-			// would contradict it in the same message.
-			const closing =
-				action.claim?.level === 'verified' && action.claim.liveState === 'live-stale'
-					? 'Report the outcome to the user, and ask whether to publish the fix.'
-					: isVerifiedClaim(action.claim)
-						? 'Report completion to the user.'
-						: 'Report the outcome to the user.';
+			// When an already-published workflow has no open setup items and did not fail
+			// verification, republish automatically so production runs the updated version
+			// without asking first.
+			const canAutoRepublishStale =
+				action.claim?.liveState === 'live-stale' &&
+				action.claim.level !== 'failed' &&
+				(action.claim.pendingTriggers?.length ?? 0) === 0;
+			const closing = canAutoRepublishStale
+				? `Run \`publish_workflow\` through \`call_tool\` with workflowId "${action.workflowId ?? 'unknown'}"` +
+					(action.claim?.level !== 'verified' ? ' and `acknowledgeUnverified: true`' : '') +
+					' so the live workflow runs your update, then report the outcome to the user.'
+				: isVerifiedClaim(action.claim)
+					? 'Report completion to the user.'
+					: 'Report the outcome to the user.';
 			return `${claimLead} ${closing}${action.workflowId ? ` Workflow ID: ${action.workflowId}` : ''}`;
 		}
 		case 'verify':

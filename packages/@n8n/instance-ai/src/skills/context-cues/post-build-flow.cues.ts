@@ -126,9 +126,9 @@ export const POST_BUILD_FLOW_CUES: ContextCueSet = {
 		// Live test and publishing
 		{
 			id: 'no-publish-before-live-test',
-			text: 'Until a non-simulated execution succeeds on the claimed path, do not offer, recommend or mention publishing, and never offer it as an alternative to the live test. After setup with mocked evidence, ask only about the live test.',
+			text: 'For a new unpublished workflow, until a non-simulated execution succeeds on the claimed path, do not offer, recommend or mention publishing, and never offer it as an alternative to a live test. State simulated nodes concisely without nagging.',
 			appliesWhen:
-				'Setup finished or verification used mocks or simulated output, and the agent is about to suggest next steps.',
+				'Setup finished or verification used mocks or simulated output on a new unpublished workflow.',
 		},
 		{
 			id: 'user-run-needs-evidence',
@@ -142,8 +142,8 @@ export const POST_BUILD_FLOW_CUES: ContextCueSet = {
 		},
 		{
 			id: ERROR_WORKFLOW_OPT_IN_CUE_ID,
-			text: 'After a direct new primary workflow is published, load `error-workflows` and ask its explicit opt-in. Do not replace it with a generic "anything else?", publish or test question.',
-			appliesWhen: 'A new primary workflow was just published successfully.',
+			text: 'Do not proactively ask whether to create an error workflow after publishing. Build an error workflow only when the user explicitly asks for one.',
+			appliesWhen: 'A primary workflow was just published successfully.',
 		},
 		// Cleanup
 		{
@@ -165,7 +165,7 @@ export const POST_BUILD_FLOW_CUES: ContextCueSet = {
 		},
 		{
 			id: 'live-stale',
-			text: 'With `claim.liveState: "live-stale"`, the published version is older than the verified draft. Do not call the workflow live or working in production; say the fix is in the draft and follow `publishing`.',
+			text: 'With `claim.liveState: "live-stale"` and no open setup blockers, republish the updated draft automatically with `publish_workflow` (passing `acknowledgeUnverified: true` when verification used simulations) so production runs the fix. Do not call the workflow live until `publish_workflow` succeeds.',
 			appliesWhen: 'Fixing or verifying a workflow that is already published.',
 		},
 		{

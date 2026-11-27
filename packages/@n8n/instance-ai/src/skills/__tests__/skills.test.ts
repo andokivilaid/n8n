@@ -523,7 +523,7 @@ describe('Instance AI skills', () => {
 		expect(loaded?.instructions).toMatch(/inline setup card in\s+the n8n Assistant panel/);
 		expect(loaded?.instructions).toContain('Mocked verification live-test follow-up');
 		expect(loaded?.instructions).toContain(
-			'Do not proactively offer, recommend, or mention publishing until a successful',
+			'Do not proactively offer, recommend, or mention publishing for a new unpublished',
 		);
 		expect(loaded?.instructions).toContain(
 			'Do not offer publishing as an alternative or describe the workflow as ready to\nuse or publish',
@@ -546,27 +546,28 @@ describe('Instance AI skills', () => {
 		);
 		expect(loaded?.instructions).not.toContain('Credentials before build');
 		expect(loaded?.instructions).toContain('`trigger-input-data-shapes`');
-		expect(loaded?.instructions).toContain('load the `publishing` reference');
-		expect(loaded?.instructions).toContain('load `error-workflows` and follow its');
+		expect(loaded?.instructions).toContain('load the\n     `publishing` reference');
+		expect(loaded?.instructions).toContain(
+			'Only load `error-workflows` when the user explicitly asks',
+		);
 		expect(loaded?.instructions.length).toBeLessThan(35_000);
 
 		// Step-specific sections live in the reference that owns the step.
 		const errorWorkflows = (await source.loadSkill('error-workflows'))?.instructions ?? '';
 		expect(errorWorkflows).toContain(
-			'ask once whether the user wants to build an error workflow for that workflow',
+			'Create and attach an error workflow\nonly when the user explicitly asks for one.',
 		);
 		// These step rules moved to post-build-flow context cues.
 		const cueText = POST_BUILD_FLOW_CUES.cues.map((cue) => cue.text).join('\n');
-		expect(cueText).toContain('Do not replace it with a generic "anything else?"');
-		expect(cueText).toContain('After setup with mocked evidence, ask only about the live test.');
+		expect(cueText).toContain(
+			'Build an error workflow only when the user explicitly asks for one.',
+		);
+		expect(cueText).toContain('State simulated nodes concisely without nagging.');
 		expect(errorWorkflows).toContain(
 			'The error workflow must be published before it can be assigned',
 		);
-		expect(errorWorkflows).toContain('Continue the publish-before-assign flow');
+		expect(errorWorkflows).toContain('continue the publish-before-assign flow');
 		expect(errorWorkflows).toContain('settings.errorWorkflow');
-		expect(errorWorkflows).toContain(
-			'The opt-in must explicitly mention an error workflow and the target workflow\nname.',
-		);
 		expect(errorWorkflows).toContain(
 			'Mention that n8n has\n   no global or instance-wide error workflow setting only when the user\n   explicitly asked about',
 		);
@@ -576,7 +577,7 @@ describe('Instance AI skills', () => {
 		expect(publishing).toContain('acknowledgeUnverified: true');
 		expect(publishing).toContain('Fixing a workflow that is already published');
 		expect(publishing).toContain(
-			'Only run `publish_workflow` through `call_tool` when the user explicitly asks',
+			'only run\n`publish_workflow` through `call_tool` when the user explicitly asks to publish',
 		);
 
 		const recipes = (await source.loadSkill('credential-recipe-research'))?.instructions ?? '';

@@ -219,17 +219,23 @@ async function handleCreate(
 ) {
 	const service = context.evaluationConfigService;
 	if (!service) return UNAVAILABLE;
+	if (context.permissions?.updateWorkflow === 'blocked') {
+		return { denied: true, reason: 'Action blocked by admin' };
+	}
 
+	await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
+	const needsApproval = context.permissions?.updateWorkflow !== 'always_allow';
 	const resumeData = ctx.resumeData;
-	if (resumeData === undefined || resumeData === null) {
-		await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
+	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		return await ctx.suspend({
 			requestId: nanoid(),
 			message: `Set up evaluation "${input.name}"`,
 			severity: 'info' as const,
 		});
 	}
-	if (!resumeData.approved) return { denied: true, reason: 'User denied the action' };
+	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
+		return { denied: true, reason: 'User denied the action' };
+	}
 
 	try {
 		const config = await service.create(input.workflowId, toUpsertInput(input));
@@ -246,17 +252,23 @@ async function handleUpdate(
 ) {
 	const service = context.evaluationConfigService;
 	if (!service) return UNAVAILABLE;
+	if (context.permissions?.updateWorkflow === 'blocked') {
+		return { denied: true, reason: 'Action blocked by admin' };
+	}
 
+	await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
+	const needsApproval = context.permissions?.updateWorkflow !== 'always_allow';
 	const resumeData = ctx.resumeData;
-	if (resumeData === undefined || resumeData === null) {
-		await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
+	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		return await ctx.suspend({
 			requestId: nanoid(),
 			message: `Update evaluation "${input.name}"`,
 			severity: 'warning' as const,
 		});
 	}
-	if (!resumeData.approved) return { denied: true, reason: 'User denied the action' };
+	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
+		return { denied: true, reason: 'User denied the action' };
+	}
 
 	try {
 		const config = await service.update(input.workflowId, input.configId, toUpsertInput(input));
@@ -273,18 +285,23 @@ async function handleDelete(
 ) {
 	const service = context.evaluationConfigService;
 	if (!service) return { success: false, ...UNAVAILABLE };
+	if (context.permissions?.deleteWorkflow === 'blocked') {
+		return { success: false, denied: true, reason: 'Action blocked by admin' };
+	}
 
+	await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
+	const needsApproval = context.permissions?.deleteWorkflow !== 'always_allow';
 	const resumeData = ctx.resumeData;
-	if (resumeData === undefined || resumeData === null) {
-		await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
+	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		return await ctx.suspend({
 			requestId: nanoid(),
 			message: `Delete evaluation "${input.configId}"`,
 			severity: 'destructive' as const,
 		});
 	}
-	if (!resumeData.approved)
+	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
 		return { success: false, denied: true, reason: 'User denied the action' };
+	}
 
 	await service.delete(input.workflowId, input.configId);
 	return { success: true };

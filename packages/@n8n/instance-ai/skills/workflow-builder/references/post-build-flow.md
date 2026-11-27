@@ -35,14 +35,15 @@ Load these references when their step comes up:
 
 ## Order
 
-Verify and set up first. Then the mocked-to-live test, when verification used
-mocks. Then cleanup of test data. Then publishing, only on request. Then the
-error-workflow opt-in. Then the final claim.
+Verify and set up first. Republish automatically when editing a workflow that was
+already published and has no open setup blockers; keep brand-new workflows as
+drafts unless the user asks to publish. Do not ask unsolicited follow-up
+questions about live tests, publishing, or error workflows.
 
 ## After workflow_builder_build_workflow succeeds
 
 1. Read `workflowId`, `workItemId`, `triggerNodes`, `verificationReadiness`,
-   `setupRequirement`, and `postBuildFlow`. Without a `workflowId`, explain that
+   `setupRequirement`, `publishState`, and `postBuildFlow`. Without a `workflowId`, explain that
    the build did not submit.
    - Inspect the saved workflow (`get_workflow_as_code`, or
      the bound source file) against the requested outcome. A save does not prove
@@ -64,32 +65,33 @@ error-workflow opt-in. Then the final claim.
      guidance as a warning or manual-test note. This is a warning completion
      state, not a verified state and not a blocker.
 3. Judge coverage, not status. Relay `simulationNote`, `nodesNotReached`,
-   `resolvedParameterWarnings` and `skippedParameterChecks` to the user.
+   `resolvedParameterWarnings` and `skippedParameterChecks` concisely to the user.
 4. If `setupRequirement.status === "required"` and setup has not run for this
    build, call `setup_workflow` with the workflowId. The
    inline setup card in the n8n Assistant panel is the user-visible surface.
 5. When `setup_workflow` returns `announced: true`, summarize the panel state
    and end the turn. When it returns `deferred: true`, `skippedByUser` or
    `partial: true`, respect the decision and report what remains.
-6. After setup completes, follow
-   [Mocked verification live-test follow-up](#mocked-verification-live-test-follow-up)
-   when the latest verification used mocks or simulations. Then
-   ask only whether the user wants the live test. Do not
-   mention publishing or ask about the error workflow in the same response.
-7. Before your final summary, check the whole conversation for test data that
-   live runs left in external systems, and follow
+6. Check the conversation for test data that any live runs left in external
+   systems, and follow
    [Cleaning up after a live test](#cleaning-up-after-a-live-test).
-8. If testing has not been offered or completed, ask whether the user wants to
-   test. Skip this when verification proved the workflow end-to-end with full
-   coverage.
-9. Only run `publish_workflow` through `call_tool` when the user explicitly asks
-   to publish, and load the `publishing` reference first.
-10. After a direct new primary workflow is successfully published, load `error-workflows` and follow its
-    error workflow follow-up.
+7. Publishing:
+   - If the workflow was **already published** before your edit
+     (`claim.liveState === "live-stale"` or `publishState.live === "stale"`) and
+     no required setup items remain open, load `publishing` and run
+     `publish_workflow` through `call_tool` (with `acknowledgeUnverified: true`
+     when verification used simulations) so the live workflow runs the fix
+     without asking first.
+   - For a **new, unpublished** workflow, only run `publish_workflow` through
+     `call_tool` when the user explicitly asks to publish, and load the
+     `publishing` reference first.
+8. Only load `error-workflows` when the user explicitly asks to create or attach
+   an error workflow. Do not ask unsolicited opt-in questions after publishing.
 
-Do not proactively offer, recommend, or mention publishing until a successful
-execution has run every required node on the claimed path without mocked
-credentials, simulated node output, fixture overrides, or temporary pin data.
+Do not proactively offer, recommend, or mention publishing for a new unpublished
+workflow until a successful execution has run every required node on the claimed
+path without mocked credentials, simulated node output, fixture overrides, or
+temporary pin data.
 
 ## Setup follow-up
 
@@ -125,17 +127,16 @@ flow.
 ## Mocked verification live-test follow-up
 
 After setup, if the latest verification used mocked credentials, simulated node
-output, fixture overrides, temporary pin data, or another mocked input, ask
-whether the user wants a live test without mocks. Do not run it automatically.
-An explicit test request in the current user input, including
-`<workflow-test-request>`, already answers this question.
+output, fixture overrides, temporary pin data, or another mocked input, note
+concisely which nodes were simulated rather than stopping to ask a separate
+question. Do not run a live test with real side effects unless the user
+explicitly asks (including `<workflow-test-request>`).
 Do not offer publishing as an alternative or describe the workflow as ready to
-use or publish.
+use or publish while it is an unpublished new workflow.
 
-If the user agrees, run it with `run_workflow` and report it separately from the
-mocked verification. If it fails, the workflow is unresolved. If the user
-declines, state what remains untested and do not claim live end-to-end
-verification.
+If the user explicitly asks for a live test, run it with `run_workflow` and
+report it separately from the mocked verification. If it fails, the workflow is
+unresolved.
 
 ## Cleaning up after a live test
 

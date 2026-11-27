@@ -2268,22 +2268,28 @@ describe('workflows tool', () => {
 			expect(verificationDisclosure).toContain('Create Event');
 		});
 
-		it('should refuse an unverified publish even when approval is not required', async () => {
+		it('publishes an unverified workflow directly under always_allow and returns verificationDisclosure', async () => {
 			const context = contextWithClaim(partialClaim, { publishWorkflow: 'always_allow' });
+			(context.workflowService.publish as Mock).mockResolvedValue({ activeVersionId: 'v2' });
+			const suspend = vi.fn();
 
 			const tool = createWorkflowToolRouter(context, 'full');
-			const result = await executeTool(tool, { action: 'publish', workflowId: 'wf1' }, {} as never);
+			const result = await executeTool(tool, { action: 'publish', workflowId: 'wf1' }, {
+				suspend,
+				resumeData: undefined,
+			} as never);
 
-			expect(context.workflowService.publish).not.toHaveBeenCalled();
-			expect(result).toMatchObject({ success: false, denied: true, reason: 'not_verified' });
+			expect(suspend).not.toHaveBeenCalled();
+			expect(context.workflowService.publish).toHaveBeenCalledWith('wf1', expect.anything());
+			expect(result).toMatchObject({
+				success: true,
+				activeVersionId: 'v2',
+				verificationDisclosure: expect.stringContaining('NOT fully verified'),
+			});
 		});
 
-		it('still asks the user to approve an acknowledged unverified publish under always_allow', async () => {
-			// The acknowledgement is only the model's word that the user asked, so
-			// it must not be the sole gate: without the dialog an `always_allow`
-			// instance would publish an unverified workflow with no disclosure
-			// anywhere the user could see.
-			const context = contextWithClaim(partialClaim, { publishWorkflow: 'always_allow' });
+		it('still asks the user to approve an acknowledged unverified publish under require_approval', async () => {
+			const context = contextWithClaim(partialClaim, { publishWorkflow: 'require_approval' });
 			const suspend = vi.fn();
 
 			const tool = createWorkflowToolRouter(context, 'full');
